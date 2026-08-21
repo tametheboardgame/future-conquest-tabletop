@@ -1,0 +1,42 @@
+name: R5 tabletop validation
+
+on:
+  pull_request:
+    paths:
+      - 'src/tabletop/**'
+      - 'src/App.tsx'
+      - 'src/main.tsx'
+      - 'scripts/run-tabletop-board-tests.mjs'
+      - 'tests/tabletop-board.test.cjs'
+      - 'tsconfig.tabletop-board-test.json'
+      - '.github/workflows/r5-tabletop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck application
+        run: npx tsc -b --pretty false
+
+      - name: Run tabletop board tests
+        run: node scripts/run-tabletop-board-tests.mjs
+
+      - name: Build current R5 application
+        run: npx vite build
