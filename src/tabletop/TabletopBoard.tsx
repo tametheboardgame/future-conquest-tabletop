@@ -121,7 +121,13 @@ export function TabletopBoard({ board, force }: TabletopBoardProps) {
       </header>
 
       <section className="tabletop-board-stage" aria-label={`${board.name} strategic board`}>
-        <svg className="tabletop-board-svg" viewBox="0 150 1200 580" role="img" aria-label="Strategic tabletop map from London to Kyiv">
+        <svg
+          className="tabletop-board-svg"
+          viewBox="0 150 1200 580"
+          role="img"
+          aria-label="Strategic tabletop map from London to Kyiv"
+          style={{ width: '100%', maxWidth: '100%', transform: 'none' }}
+        >
           <defs>
             <pattern id="tabletop-grid" width="60" height="60" patternUnits="userSpaceOnUse">
               <path d="M 60 0 L 0 0 0 60" className="tabletop-grid-line" fill="none" />
@@ -244,6 +250,9 @@ export function TabletopBoard({ board, force }: TabletopBoardProps) {
           <span><i className="legend-piece legend-piece--future" /> Future Force</span>
           <span><i className="legend-piece legend-piece--coalition" /> Coalition</span>
           <span><i className="legend-destination" /> Potential move</span>
+          <span><i className="legend-line legend-line--major" /> Major corridor</span>
+          <span><i className="legend-line legend-line--route" /> Route</span>
+          <span><i className="legend-line legend-line--pass" /> Pass / crossing</span>
           <span><b>★</b> Objective</span>
           <span><b>H</b> Hub</span>
         </div>
