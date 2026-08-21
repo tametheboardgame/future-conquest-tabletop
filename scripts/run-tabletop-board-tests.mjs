@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { rmSync, writeFileSync } from 'node:fs';
 
-const tsc = process.platform === 'win32' ? 'tsc.cmd' : 'tsc';
+const tsc = process.platform === 'win32' ? 'node_modules/.bin/tsc.cmd' : 'node_modules/.bin/tsc';
 
 rmSync('.tabletop-test-dist', { recursive: true, force: true });
 execFileSync(tsc, ['-p', 'tsconfig.tabletop-board-test.json'], { stdio: 'inherit' });
