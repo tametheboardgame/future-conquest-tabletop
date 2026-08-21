@@ -11,5 +11,9 @@
     "outDir": ".tabletop-test-dist",
     "noEmit": false
   },
-  "include": ["src/tabletop/board.ts"]
+  "include": [
+    "src/tabletop/board.ts",
+    "src/tabletop/state.ts",
+    "src/tabletop/pieces.ts"
+  ]
 }
