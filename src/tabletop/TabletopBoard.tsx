@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type KeyboardEvent } from 'react';
 import {
   adjacentRegionIds,
   connectionsForRegion,
@@ -108,7 +108,7 @@ export function TabletopBoard({ board }: { board: TabletopBoardDefinition }) {
                   aria-label={`${region.name}, ${region.terrain}${objective ? `, objective ${objective.label}` : ''}`}
                   aria-pressed={selected}
                   onClick={() => setSelectedRegionId(region.id)}
-                  onKeyDown={(event) => {
+                  onKeyDown={(event: KeyboardEvent<SVGGElement>) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
                       setSelectedRegionId(region.id);
