@@ -1,40 +1,75 @@
-# Future Conquest
+# Future Conquest: Tabletop
 
-A serious, turn-based strategy game about a finite future army invading present-day Europe to change history.
+A digital tabletop strategy redesign of **Future Conquest**.
 
-Every tactical victory consumes irreplaceable soldiers and powered armour while the modern world mobilises, adapts and escalates. If the invasion succeeds, the player discovers that it created the future it was intended to prevent.
+A finite future army has been displaced into present-day Europe. It is technologically dominant but cannot replace its best troops or equipment. Present-day forces begin fragmented, then mobilise and become increasingly dangerous. The invader must achieve decisive strategic objectives before time turns the war against it.
+
+## Why this repository exists
+
+This repository was imported from the original `future-conquest` simulation codebase on 21 August 2026 at commit `e6440635e7d85924fe2920979a6facb14e6993ef`.
+
+The original project had accumulated substantial simulation depth but too much player-facing administration. This repository explores a different game structure built around a digital board, physical pieces, alternating activations, cards and dice.
+
+The design principle is:
+
+> **Complex simulation underneath. Simple board-game language on top. Every turn should force a small number of consequential decisions.**
+
+The original simulation repository remains separate and intact.
 
 ## Current status
 
-Pre-production and game-system design.
+**R5 tabletop foundation / proof-of-fun design.**
 
-- Phase 1, Game Identity and Vision: approved foundation
-- Phase 2, European Campaign Map: research draft and 101-territory catalogue prepared
-- Next milestone: first rendered Standard Campaign territory map
+No major legacy system should be expanded until the small tabletop prototype demonstrates that the core game loop is enjoyable.
 
-## Design documents
+Initial prototype target:
 
-- [Phase 1: Game Identity and Vision](docs/design/phase-01-game-identity.md)
-- [Phase 2: European Campaign Map Design](docs/design/phase-02-map-design.md)
+- 15–20 strategic regions;
+- 2 asymmetric factions;
+- 8–12 formation pieces per side;
+- 4 Command Actions per side per round;
+- alternating activation;
+- 6–8 round scenario;
+- fast dice-pool combat;
+- approximately 30 cards;
+- Supplied / Strained / Cut Off logistics;
+- visible engineering and infrastructure effects;
+- 2-player local hotseat;
+- basic AI able to control either seat.
+
+## R5 design documents
+
+- [R5 Tabletop Game Design Direction](docs/design/r5-tabletop-game-design.md)
+- [Prototype Rules v0.1](docs/design/r5-prototype-rules-v0.1.md)
+- [Legacy Reuse Matrix](docs/design/r5-legacy-reuse-matrix.md)
+- [R5 Tabletop Roadmap](docs/roadmap/R5_TABLETOP_ROADMAP.md)
+
+## Preserved legacy design and research
+
+The imported repository retains the original Future Conquest research, world-state data, maps, simulations and visual work. These are assets, not automatic requirements for the tabletop rules.
+
+Key legacy documents include:
+
+- [Original Phase 1: Game Identity and Vision](docs/design/phase-01-game-identity.md)
+- [Original Phase 2: European Campaign Map Design](docs/design/phase-02-map-design.md)
 - [Design Decision Register](docs/research/decisions.md)
 - [Research Source Register](docs/research/sources.md)
 - [World State Overview](docs/world-state/overview.md)
 
-## Campaign data
+## Repository safety
 
-- [Standard territory catalogue](data/authored/territories-standard.csv)
-- [Authored data rules](data/authored/README.md)
-- [Source manifest requirements](data/source-manifests/README.md)
+The exact imported simulation state is preserved on:
 
-## Development principle
+`archive/imported-simulation-baseline-2026-08-21`
 
-The game will use permanent strategic territory geometry combined with dated, versioned World States. Political control, alliances, conflicts and military capability can therefore change without redrawing the campaign map.
+Tabletop foundation work begins on:
 
+`r5/tabletop-foundation`
 
-## Current playable systems
+The original Future Conquest repository also has its own preserved R4 simulation branch.
 
-- Phase VIII-A: Escalation, Mobilisation and Enemy Command
-- Five visible escalation stages, reinforcement arrival timelines, assessed enemy intent and confidence-rated intelligence
-- Save version 5 with automatic migration from versions 4, 3 and 2
+## Development rule
 
-See [Phase VIII-A design](docs/design/phase-08-a-strategic-response.md).
+Technology and simulation may be reused when they reduce implementation effort or produce interesting consequences. Administrative interface is not inherited by default.
+
+A legacy system only earns its way back into the tabletop game when playtesting demonstrates that it improves decisions, tension, clarity or consequence enough to justify its complexity.
