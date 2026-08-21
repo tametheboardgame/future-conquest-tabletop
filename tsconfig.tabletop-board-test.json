@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "rootDir": "src/tabletop",
+    "outDir": ".tabletop-test-dist",
+    "noEmit": false
+  },
+  "include": ["src/tabletop/board.ts"]
+}
