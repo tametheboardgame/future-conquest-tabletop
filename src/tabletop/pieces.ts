@@ -94,6 +94,11 @@ export const CENTRAL_FRONT_PROTOTYPE_FORCE: TabletopPrototypeForce = {
   ]
 };
 
+function traitsMatch(definitionTraits: TabletopFormationTrait[], pieceTraits: TabletopFormationTrait[]): boolean {
+  if (definitionTraits.length !== pieceTraits.length) return false;
+  return definitionTraits.every((trait, index) => trait === pieceTraits[index]);
+}
+
 export function validatePrototypeForce(
   board: TabletopBoardDefinition,
   force: TabletopPrototypeForce
@@ -116,6 +121,7 @@ export function validatePrototypeForce(
       continue;
     }
     if (definition.factionId !== piece.factionId) errors.push(`Piece ${piece.id} faction does not match definition`);
+    if (!traitsMatch(definition.traits, piece.traits)) errors.push(`Piece ${piece.id} traits do not match definition`);
     if (!regionIds.has(piece.regionId)) errors.push(`Piece ${piece.id} references unknown region ${piece.regionId}`);
     if (piece.kind !== 'formation') errors.push(`Prototype piece ${piece.id} is not a formation`);
     if (piece.strength <= 0) errors.push(`Prototype piece ${piece.id} has non-positive strength`);
