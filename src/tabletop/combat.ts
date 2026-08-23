@@ -9,6 +9,8 @@ export interface CombatPreview {
   modifiers: CombatModifier[];
 }
 export interface CombatResolution extends CombatPreview {
+  attacker: TabletopPieceState;
+  defenders: TabletopPieceState[];
   attackerRolls: number[];
   defenderRolls: number[];
   attackerHits: number;
@@ -98,6 +100,6 @@ export function resolveCombat(state: TabletopGameState, board: TabletopBoardDefi
   }
   const retreatText = retreatedTo ? ` Defenders retreated to ${retreatedTo}.` : '';
   const lossText = eliminated.length ? ` Eliminated: ${eliminated.join(', ')}.` : '';
-  return { ...preview, attackerRolls, defenderRolls, attackerHits, defenderHits, pieces, random, retreatedTo, eliminated,
+  return { ...preview, attacker: structuredClone(attacker), defenders: structuredClone(defenders), attackerRolls, defenderRolls, attackerHits, defenderHits, pieces, random, retreatedTo, eliminated,
     feedback: `${preview.attackerDice} vs ${preview.defenderDice} dice; attacker ${attackerHits} hit${attackerHits === 1 ? '' : 's'}, defender ${defenderHits}.${retreatText}${lossText}` };
 }

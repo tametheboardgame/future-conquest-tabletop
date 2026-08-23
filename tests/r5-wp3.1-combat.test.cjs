@@ -110,6 +110,9 @@ test('successful attack spends exactly one action and alternates', () => {
   assert.equal(result.ok, true);
   assert.equal(result.state.round.commandActionsRemaining['future-seat'], 3);
   assert.equal(result.state.round.activeSeatId, 'coalition-seat');
+  assert.ok(result.combat, 'dispatcher exposes its exact authoritative resolution');
+  assert.deepEqual(result.combat.pieces, result.state.board.pieces);
+  assert.deepEqual(result.combat.random, result.state.random);
 });
 
 test('preview explains relative advantage and does not mutate state', () => {

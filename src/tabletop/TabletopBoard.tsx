@@ -6,7 +6,8 @@ import {
   type TabletopRegionDefinition
 } from './board';
 import type { TabletopPrototypeForce } from './pieces';
-import { legalTargets, previewAttack, type CoreActionRequest, type CoreActionType } from './core-actions';
+import { legalTargets, previewAttack, type CoreActionRequest, type CoreActionResult, type CoreActionType } from './core-actions';
+import type { CombatResolution } from './combat';
 import type { TabletopFormationTrait, TabletopGameState, TabletopPieceState } from './state';
 
 function terrainGlyph(region: TabletopRegionDefinition): string {
@@ -62,7 +63,7 @@ interface TabletopBoardProps {
   board: TabletopBoardDefinition;
   force: TabletopPrototypeForce;
   game: TabletopGameState;
-  onAction: (request: CoreActionRequest) => { ok: boolean; reason: string };
+  onAction: (request: CoreActionRequest) => CoreActionResult;
   onPass: () => void;
 }
 
@@ -78,6 +79,7 @@ export function TabletopBoard({ board, force, game, onAction, onPass }: Tabletop
   const [selectedRegionId, setSelectedRegionId] = useState('paris');
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
   const [pendingAttackRegionId, setPendingAttackRegionId] = useState<string | null>(null);
+  const [combatResult, setCombatResult] = useState<CombatResolution | null>(null);
   const regionsById = useMemo(
     () => new Map(board.regions.map((region) => [region.id, region])),
     [board.regions]
@@ -96,7 +98,11 @@ export function TabletopBoard({ board, force, game, onAction, onPass }: Tabletop
   const perform = (request: CoreActionRequest) => {
     const result = onAction(request);
     setFeedback(result.reason);
-    if (result.ok) setSelectedPieceId(null);
+    if (result.ok) {
+      if (result.combat) setCombatResult(result.combat);
+      setPendingAttackRegionId(null);
+      setSelectedPieceId(null);
+    }
   };
   const adjacent = selectedRegion
     ? adjacentRegionIds(board, selectedRegion.id).flatMap((id) => {
@@ -158,17 +164,44 @@ export function TabletopBoard({ board, force, game, onAction, onPass }: Tabletop
             <button type="button" onClick={onPass} disabled={round.phase !== 'command'}>Pass</button>
           </div>
           <small>{feedback}</small>
-          {attackPreview && selectedPiece && pendingAttackRegionId && (
-            <div className="tabletop-combat-preview" role="dialog" aria-label="Attack preview">
-              <strong>{attackPreview.attackerDice} attack dice vs {attackPreview.defenderDice} defence dice · {attackPreview.advantage} advantage</strong>
-              <span>{attackPreview.modifiers.length ? attackPreview.modifiers.map((modifier) => modifier.reason).join(' · ') : 'No situational modifiers.'}</span>
-              <div>
-                <button type="button" onClick={() => perform({ type: 'attack', seatId: round.activeSeatId, pieceId: selectedPiece.id, targetRegionId: pendingAttackRegionId })}>Confirm attack</button>
-                <button type="button" onClick={() => setPendingAttackRegionId(null)}>Cancel</button>
-              </div>
-            </div>
-          )}
         </div>
+        {attackPreview && selectedPiece && pendingAttackRegionId && (
+          <section className="tabletop-combat-panel tabletop-combat-panel--preview" role="dialog" aria-modal="false" aria-labelledby="combat-preview-title" onKeyDown={(event) => { if (event.key === 'Escape') setPendingAttackRegionId(null); }}>
+            <header><span>Combat preview</span><h2 id="combat-preview-title">Confirm engagement</h2></header>
+            <div className="tabletop-combatants">
+              <div><span>Attacker</span><strong>{force.definitions[selectedPiece.definitionId]?.name ?? selectedPiece.definitionId}</strong><b>{attackPreview.attackerDice} dice</b></div>
+              <i aria-hidden="true">VS</i>
+              <div><span>Defender</span><strong>{(regionPieces.get(pendingAttackRegionId) ?? []).filter((piece) => piece.factionId !== selectedPiece.factionId).map((piece) => force.definitions[piece.definitionId]?.name ?? piece.definitionId).join(', ')}</strong><b>{attackPreview.defenderDice} dice</b></div>
+            </div>
+            <p className={`tabletop-advantage tabletop-advantage--${attackPreview.advantage}`}>{attackPreview.advantage === 'even' ? 'Even odds' : `${attackPreview.advantage} advantage`}</p>
+            <ul className="tabletop-modifiers" aria-label="Combat modifiers">
+              {attackPreview.modifiers.length ? attackPreview.modifiers.map((modifier, index) => <li key={`${modifier.side}-${index}`}><span>{modifier.side}</span>{modifier.reason}</li>) : <li>No situational modifiers.</li>}
+            </ul>
+            <div className="tabletop-combat-actions">
+              <button className="tabletop-combat-primary" type="button" autoFocus onClick={() => perform({ type: 'attack', seatId: round.activeSeatId, pieceId: selectedPiece.id, targetRegionId: pendingAttackRegionId })}>Confirm attack</button>
+              <button type="button" onClick={() => setPendingAttackRegionId(null)}>Cancel</button>
+            </div>
+          </section>
+        )}
+        {combatResult && (
+          <section className="tabletop-combat-panel tabletop-combat-panel--result" role="dialog" aria-modal="false" aria-labelledby="combat-result-title" aria-describedby="combat-result-summary">
+            <header><span>Authoritative result</span><h2 id="combat-result-title">Combat resolved</h2></header>
+            <div className="tabletop-dice-sides">
+              {([['Attacker', combatResult.attackerRolls, combatResult.attackerHits], ['Defender', combatResult.defenderRolls, combatResult.defenderHits]] as const).map(([side, rolls, hits]) => (
+                <div key={side}><h3>{side} · {hits} {hits === 1 ? 'hit' : 'hits'}</h3><div className="tabletop-dice" aria-label={`${side} dice: ${rolls.join(', ')}`}>{rolls.map((die, index) => <span key={index} className={die >= 5 ? 'is-hit' : 'is-miss'} aria-label={`${die}, ${die >= 5 ? 'hit' : 'miss'}`}>{die}<small>{die >= 5 ? 'hit' : 'miss'}</small></span>)}</div></div>
+              ))}
+            </div>
+            <div className="tabletop-outcomes" id="combat-result-summary">
+              {[combatResult.attacker, ...combatResult.defenders].map((before) => {
+                const after = combatResult.pieces[before.id];
+                const loss = before.strength - (after?.strength ?? 0);
+                return <p key={before.id}><strong>{force.definitions[before.definitionId]?.name ?? before.definitionId}</strong><span>{loss ? `−${loss} strength` : 'No losses'} · {after ? `${before.readiness} → ${after.readiness}` : 'Eliminated'}{after && after.regionId !== before.regionId ? ` · Retreated to ${regionsById.get(after.regionId)?.name ?? after.regionId}` : ''}</span></p>;
+              })}
+            </div>
+            <p className="tabletop-result-note">{combatResult.retreatedTo ? `Retreat: ${regionsById.get(combatResult.retreatedTo)?.name ?? combatResult.retreatedTo}.` : 'No retreat.'} {combatResult.eliminated.length ? `${combatResult.eliminated.length} formation${combatResult.eliminated.length === 1 ? '' : 's'} eliminated.` : 'No formations eliminated.'}</p>
+            <div className="tabletop-combat-actions"><button className="tabletop-combat-primary" type="button" autoFocus onClick={() => { setCombatResult(null); setFeedback(`${seatLabels[round.activeSeatId]} may take the next Command Action.`); }}>Continue to next activation</button></div>
+          </section>
+        )}
         <svg
           className="tabletop-board-svg"
           viewBox="0 150 1200 580"

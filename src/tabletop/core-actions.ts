@@ -1,6 +1,6 @@
 import { CENTRAL_FRONT_BOARD, adjacentRegionIds, connectionsForRegion, type TabletopBoardDefinition } from './board';
 import { spendCommandAction } from './command-phase';
-import { previewCombat, resolveCombat, type CombatPreview } from './combat';
+import { previewCombat, resolveCombat, type CombatPreview, type CombatResolution } from './combat';
 import { CENTRAL_FRONT_PROTOTYPE_FORCE } from './pieces';
 import {
   TABLETOP_RULES_VERSION,
@@ -24,6 +24,8 @@ export interface CoreActionResult {
   ok: boolean;
   state: TabletopGameState;
   reason: string;
+  /** Present only for a successful attack; this is the exact rules-layer result, not a UI reroll. */
+  combat?: CombatResolution;
 }
 
 export interface CoreActionRules { board: TabletopBoardDefinition }
@@ -110,12 +112,14 @@ export function dispatchCoreAction(state: TabletopGameState, request: CoreAction
   const next = structuredClone(state);
   next.round = spent.state;
   let reason = '';
+  let combat: CombatResolution | undefined;
   if (request.type === 'move' && piece) {
     next.board.pieces[piece.id].regionId = request.targetRegionId;
     next.board.regions[request.targetRegionId].controller = faction;
     reason = `${piece.definitionId} moved.`;
   } else if (request.type === 'attack' && piece) {
     const resolution = resolveCombat(state, rules.board, piece.id, request.targetRegionId);
+    combat = resolution;
     next.board.pieces = resolution.pieces;
     next.random = resolution.random;
     if (next.board.pieces[piece.id]
@@ -141,7 +145,7 @@ export function dispatchCoreAction(state: TabletopGameState, request: CoreAction
     next.scenario.tracks.scenarioActions = (next.scenario.tracks.scenarioActions ?? 0) + 1;
     reason = `${request.regionId} objective secured.`;
   }
-  return { ok: true, state: next, reason };
+  return { ok: true, state: next, reason, ...(combat ? { combat } : {}) };
 }
 
 export function serializeTabletopGame(state: TabletopGameState): string { return JSON.stringify(createTabletopSaveEnvelope(state)); }
