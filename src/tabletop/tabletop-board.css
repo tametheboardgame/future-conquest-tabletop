@@ -437,7 +437,7 @@ button,
   }
 
   .tabletop-board-svg {
-    width: 150%;
-    transform: translateX(-10%);
+    width: 100%;
+    transform: none;
   }
 }
