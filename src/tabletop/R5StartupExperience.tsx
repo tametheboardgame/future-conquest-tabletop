@@ -3,6 +3,7 @@ import { audioManager } from '../audio/audio-manager';
 import { loadGlobalSettings, saveGlobalSettings, type GlobalSettings } from '../game/global-settings';
 import { BUILD_LABEL } from '../generated/build-info';
 import { GlobalSettingsPanel } from '../components/GlobalSettingsPanel';
+import { R5_GAME_REVEALED_EVENT } from './launch-transition';
 import '../components/startup-launcher.css';
 
 /** The preserved R3 title/audio host. It deliberately owns presentation only. */
@@ -16,6 +17,16 @@ export function R5StartupExperience({ children }: { children: ReactNode }) {
     audioManager.requestMusic(launched ? 'game' : 'title');
   }, [launched, settings]);
 
+  useEffect(() => {
+    if (!launched) return;
+    // Let React remove the launcher and restore the shell's layout before
+    // persistent canvas renderers measure their now-visible viewport.
+    const frame = window.requestAnimationFrame(() => {
+      window.dispatchEvent(new Event(R5_GAME_REVEALED_EVENT));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [launched]);
+
   const applySettings = (next: GlobalSettings) => {
     const saved = saveGlobalSettings(next);
     setSettings(saved);
@@ -28,7 +39,7 @@ export function R5StartupExperience({ children }: { children: ReactNode }) {
   };
 
   return <>
-    <div className={`startup-game-shell ${launched ? '' : 'launcher-covered'}`} aria-hidden={!launched} inert={!launched}>
+    <div className={`startup-game-shell ${launched ? '' : 'launcher-covered'}`}>
       {children}
     </div>
     {!launched && <section className="startup-launcher" aria-label="Future Conquest title screen">

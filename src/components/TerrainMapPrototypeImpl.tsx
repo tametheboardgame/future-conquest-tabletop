@@ -50,6 +50,7 @@ import { createCoalescedFrameTask } from '../presentation/r3-coalesced-frame-tas
 import type { TerrainOperationalLayers } from '../presentation/r3-terrain-operational-markers';
 import type { FormationMiniaturesLayer } from '../presentation/r3-formation-miniatures-layer';
 import type { WorldMiniaturesLayer } from '../presentation/r3-world-miniatures-layer';
+import { R5_GAME_REVEALED_EVENT } from '../tabletop/launch-transition';
 
 const R3_FORMATION_MINIATURE_LAYER_ID = 'r3-wp3-5-formation-miniatures';
 const R3_WORLD_MINIATURE_LAYER_ID = 'r3-wp3-5-world-miniatures';
@@ -553,6 +554,16 @@ export function TerrainMapPrototypeImpl({
     let ownedMap: Map | null = null;
     let toolbarResizeObserver: ResizeObserver | null = null;
     let cancelOperationalLayoutFrame: (() => void) | undefined;
+    let revealFrame: number | undefined;
+    const resizeAfterReveal = () => {
+      if (revealFrame !== undefined) window.cancelAnimationFrame(revealFrame);
+      revealFrame = window.requestAnimationFrame(() => {
+        revealFrame = undefined;
+        mapRef.current?.resize();
+        mapRef.current?.triggerRepaint();
+      });
+    };
+    window.addEventListener(R5_GAME_REVEALED_EVENT, resizeAfterReveal);
 
     const initialise = async () => {
       const terrainSource = await loadTerrainSource();
@@ -762,6 +773,8 @@ export function TerrainMapPrototypeImpl({
       worldMiniaturesRef.current = null;
       toolbarResizeObserver?.disconnect();
       cancelOperationalLayoutFrame?.();
+      window.removeEventListener(R5_GAME_REVEALED_EVENT, resizeAfterReveal);
+      if (revealFrame !== undefined) window.cancelAnimationFrame(revealFrame);
       mapRef.current = null;
       delete (window as typeof window & { __r3TerrainMap?: Map }).__r3TerrainMap;
       delete (window as typeof window & { __r3StrategicNodes?: typeof STRATEGIC_NODES }).__r3StrategicNodes;
