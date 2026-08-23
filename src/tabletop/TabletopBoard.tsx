@@ -9,6 +9,7 @@ import type { TabletopPrototypeForce } from './pieces';
 import { legalTargets, previewAttack, type CoreActionRequest, type CoreActionResult, type CoreActionType } from './core-actions';
 import type { CombatResolution } from './combat';
 import type { TabletopFormationTrait, TabletopGameState, TabletopPieceState } from './state';
+import { RichMapBackdrop } from './RichMapBackdrop';
 
 function terrainGlyph(region: TabletopRegionDefinition): string {
   switch (region.terrain) {
@@ -154,6 +155,7 @@ export function TabletopBoard({ board, force, game, onAction, onPass }: Tabletop
       </header>
 
       <section className="tabletop-board-stage" aria-label={`${board.name} strategic board`}>
+        <RichMapBackdrop board={board} force={force} game={game} selectedPieceId={selectedPieceId} selectedRegionId={selectedRegionId} onSelectPiece={(pieceId) => { const piece = game.board.pieces[pieceId]; if (piece) selectPiece(piece); }} onSelectRegion={selectRegion} />
         <div className="tabletop-command-controls" aria-live="polite">
           <span>{round.phase === 'command' ? `${seatLabels[round.activeSeatId]} activation` : 'Command Phase complete'}</span>
           <strong>{round.phase === 'command' ? `${round.commandActionsRemaining[round.activeSeatId]} actions remaining` : 'Proceed to Supply'}</strong>
@@ -257,6 +259,7 @@ export function TabletopBoard({ board, force, game, onAction, onPass }: Tabletop
               return (
                 <g
                   key={region.id}
+                  data-region-id={region.id}
                   transform={`translate(${region.x} ${region.y})`}
                   className={`tabletop-region tabletop-region--${region.terrain}${selected ? ' is-selected' : ''}${objective ? ' is-objective' : ''}${destination ? ' is-destination' : ''}`}
                   role="button"
