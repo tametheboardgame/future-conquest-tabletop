@@ -1,0 +1,46 @@
+name: R5 BG0 browser runtime gate
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chromium-launch-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Start exact production build
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/future-conquest-vite.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && exit 0; sleep 1; done
+          cat /tmp/future-conquest-vite.log
+          exit 1
+      - name: Exercise R5 campaign launch in Chromium
+        run: node scripts/probe-r5-bg0-runtime.mjs
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r5-bg0-browser-runtime
+          path: |
+            /tmp/r5-bg0-runtime.png
+            /tmp/future-conquest-vite.log
+          if-no-files-found: warn
