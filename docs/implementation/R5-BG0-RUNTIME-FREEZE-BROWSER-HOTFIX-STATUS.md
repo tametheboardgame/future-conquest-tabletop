@@ -1,0 +1,1 @@
+BG0 runtime freeze investigation active.
