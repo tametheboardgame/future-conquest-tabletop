@@ -13,6 +13,7 @@ const panel6PartsDirectory = path.join(repositoryRoot, 'src', 'assets', 'motion-
 const page1BundlePartsDirectory = path.join(repositoryRoot, 'src', 'assets', 'motion-comic-v3', 'page1', 'bundle-parts');
 const page2BundlePartsDirectory = path.join(repositoryRoot, 'src', 'assets', 'motion-comic-v3', 'page2', 'bundle-parts-q12');
 const page1PublicDirectory = path.join(repositoryRoot, 'public', 'generated', 'motion-comic-v3', 'page1');
+const page2PublicDirectory = path.join(repositoryRoot, 'public', 'generated', 'motion-comic-v3', 'page2');
 const motionComicSourceDirectory = path.join(repositoryRoot, 'src', 'generated', 'motion-comic-v3');
 const panel1SourceOutput = path.join(motionComicSourceDirectory, 'panel-01-world-that-remains.webp');
 const panel1PublicOutput = path.join(page1PublicDirectory, 'panel-01-world-that-remains.webp');
@@ -171,6 +172,7 @@ const buildInfoSource = [
 await mkdir(legacyOutputDirectory, { recursive: true });
 await mkdir(motionComicSourceDirectory, { recursive: true });
 await mkdir(page1PublicDirectory, { recursive: true });
+await mkdir(page2PublicDirectory, { recursive: true });
 await mkdir(buildInfoDirectory, { recursive: true });
 await writeFile(legacyOutputFile, spriteBytes);
 await writeFile(panel1SourceOutput, panel1Bytes);
@@ -190,6 +192,7 @@ await writeFile(panel6PublicOutput, panel6Bytes);
 
 for (const asset of page2Assets) {
   await writeFile(path.join(motionComicSourceDirectory, asset.fileName), asset.bytes);
+  await writeFile(path.join(page2PublicDirectory, asset.fileName), asset.bytes);
 }
 
 await writeFile(buildInfoFile, buildInfoSource, 'utf8');
