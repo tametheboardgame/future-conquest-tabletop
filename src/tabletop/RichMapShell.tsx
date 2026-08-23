@@ -1,4 +1,5 @@
 import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { buildR5RichMapFrame } from '../presentation/r5-rich-map-adapter';
 import {
   adjacentRegionIds,
   connectionsForRegion,
@@ -8,8 +9,8 @@ import {
 import type { TabletopPrototypeForce } from './pieces';
 import { legalTargets, previewAttack, type CoreActionRequest, type CoreActionResult, type CoreActionType } from './core-actions';
 import type { CombatResolution } from './combat';
-import type { TabletopFormationTrait, TabletopGameState, TabletopPieceState } from './state';
 import { RichMapBackdrop } from './RichMapBackdrop';
+import type { TabletopFormationTrait, TabletopGameState, TabletopPieceState } from './state';
 
 function terrainGlyph(region: TabletopRegionDefinition): string {
   switch (region.terrain) {
@@ -60,7 +61,7 @@ function piecesByRegion(pieces: TabletopPieceState[]): Map<string, TabletopPiece
   return result;
 }
 
-interface TabletopBoardProps {
+export interface RichMapShellProps {
   board: TabletopBoardDefinition;
   force: TabletopPrototypeForce;
   game: TabletopGameState;
@@ -73,7 +74,7 @@ const seatLabels: Record<string, string> = {
   'coalition-seat': 'Coalition'
 };
 
-export function TabletopBoard({ board, force, game, onAction, onPass }: TabletopBoardProps) {
+export function RichMapShell({ board, force, game, onAction, onPass }: RichMapShellProps) {
   const round = game.round;
   const [selectedAction, setSelectedAction] = useState<CoreActionType>('move');
   const [feedback, setFeedback] = useState('Select an action and a formation.');
@@ -92,9 +93,12 @@ export function TabletopBoard({ board, force, game, onAction, onPass }: Tabletop
     : null;
   const selectedDefinition = selectedPiece ? force.definitions[selectedPiece.definitionId] : null;
   const selectedRegion = regionsById.get(selectedPiece?.regionId ?? selectedRegionId) ?? board.regions[0];
+  const presentationFrame = useMemo(() => buildR5RichMapFrame({
+    board, game, definitions: force.definitions, selectedPieceId, selectedRegionId, action: selectedAction
+  }), [board, game, force.definitions, selectedPieceId, selectedRegionId, selectedAction]);
   const topologyDestinationIds = useMemo(
-    () => new Set(legalTargets(game, selectedAction, selectedPiece?.id)),
-    [game, selectedAction, selectedPiece]
+    () => new Set(presentationFrame.legalTargetRegionIds),
+    [presentationFrame]
   );
   const perform = (request: CoreActionRequest) => {
     const result = onAction(request);
@@ -137,7 +141,7 @@ export function TabletopBoard({ board, force, game, onAction, onPass }: Tabletop
   };
 
   return (
-    <main className="tabletop-shell">
+    <main className="tabletop-shell rich-map-shell" data-authority="r5-tabletop">
       <header className="tabletop-header">
         <div className="tabletop-brand">
           <span className="tabletop-eyebrow">Future Conquest</span>
@@ -154,7 +158,7 @@ export function TabletopBoard({ board, force, game, onAction, onPass }: Tabletop
         </div>
       </header>
 
-      <section className="tabletop-board-stage" aria-label={`${board.name} strategic board`}>
+      <section className="tabletop-board-stage rich-map-stage" aria-label={`${board.name} strategic board`}>
         <RichMapBackdrop board={board} force={force} game={game} selectedPieceId={selectedPieceId} selectedRegionId={selectedRegionId} onSelectPiece={(pieceId) => { const piece = game.board.pieces[pieceId]; if (piece) selectPiece(piece); }} onSelectRegion={selectRegion} />
         <div className="tabletop-command-controls" aria-live="polite">
           <span>{round.phase === 'command' ? `${seatLabels[round.activeSeatId]} activation` : 'Command Phase complete'}</span>
@@ -205,25 +209,29 @@ export function TabletopBoard({ board, force, game, onAction, onPass }: Tabletop
           </section>
         )}
         <svg
-          className="tabletop-board-svg"
+          className="tabletop-board-svg rich-map-board"
           viewBox="0 150 1200 580"
           role="img"
           aria-label="Strategic tabletop map from London to Kyiv"
           style={{ width: '100%', maxWidth: '100%', transform: 'none' }}
         >
           <defs>
+            <pattern id="rich-terrain" width="96" height="72" patternUnits="userSpaceOnUse"><rect width="96" height="72" fill="#486856"/><path d="M0 58 L22 25 39 50 58 15 96 61" fill="none" stroke="#7a8870" strokeWidth="13" opacity=".4"/><path d="M0 64 Q35 43 96 55" fill="none" stroke="#b5c083" strokeWidth="4" opacity=".25"/></pattern>
             <pattern id="tabletop-grid" width="60" height="60" patternUnits="userSpaceOnUse">
               <path d="M 60 0 L 0 0 0 60" className="tabletop-grid-line" fill="none" />
             </pattern>
+            <clipPath id="rich-land-clip"><path d="M35 240 C120 190 210 235 265 270 C360 215 475 210 565 225 C670 175 805 185 905 220 C1035 235 1145 305 1190 370 L1180 520 C1080 590 1010 585 925 555 C850 700 700 735 610 650 C520 665 430 620 390 535 C275 535 185 480 125 410 C75 390 45 330 35 240 Z"/></clipPath>
             <filter id="tabletop-shadow" x="-40%" y="-40%" width="180%" height="180%">
               <feDropShadow dx="0" dy="8" stdDeviation="7" floodOpacity="0.35" />
             </filter>
           </defs>
 
-          <rect x="0" y="150" width="1200" height="580" className="tabletop-water" />
+          <rect x="0" y="150" width="1200" height="580" className="tabletop-water rich-map-water" />
+          <path className="rich-map-terrain-shadow" d="M35 240 C120 190 210 235 265 270 C360 215 475 210 565 225 C670 175 805 185 905 220 C1035 235 1145 305 1190 370 L1180 520 C1080 590 1010 585 925 555 C850 700 700 735 610 650 C520 665 430 620 390 535 C275 535 185 480 125 410 C75 390 45 330 35 240 Z" />
           <rect x="0" y="150" width="1200" height="580" fill="url(#tabletop-grid)" />
+          <image href={presentationFrame.terrainAssetUrl} x="25" y="160" width="1170" height="560" preserveAspectRatio="xMidYMid slice" clipPath="url(#rich-land-clip)" className="rich-map-physical-terrain" />
           <path
-            className="tabletop-landmass"
+            className="tabletop-landmass rich-map-landmass"
             d="M35 240 C120 190 210 235 265 270 C360 215 475 210 565 225 C670 175 805 185 905 220 C1035 235 1145 305 1190 370 L1180 520 C1080 590 1010 585 925 555 C850 700 700 735 610 650 C520 665 430 620 390 535 C275 535 185 480 125 410 C75 390 45 330 35 240 Z"
           />
 
@@ -259,7 +267,8 @@ export function TabletopBoard({ board, force, game, onAction, onPass }: Tabletop
               return (
                 <g
                   key={region.id}
-                  data-region-id={region.id}
+                  data-render-id={presentationFrame.regions.find((item) => item.regionId === region.id)?.renderId}
+                  data-landmark-asset={presentationFrame.regions.find((item) => item.regionId === region.id)?.landmarkAssetId}
                   transform={`translate(${region.x} ${region.y})`}
                   className={`tabletop-region tabletop-region--${region.terrain}${selected ? ' is-selected' : ''}${objective ? ' is-objective' : ''}${destination ? ' is-destination' : ''}`}
                   role="button"

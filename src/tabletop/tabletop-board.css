@@ -132,6 +132,18 @@ button,
     linear-gradient(180deg, rgba(11, 21, 18, 0.1), rgba(4, 9, 8, 0.55));
 }
 
+.r5-rich-map { position: absolute; inset: 0; z-index: 0; overflow: hidden; background: #132d35; }
+.r5-rich-map .r3-terrain-prototype { width: 100%; height: 100%; min-height: 0; }
+.r5-rich-map .r3-terrain-prototype-toolbar { top: auto; right: 12px; bottom: 12px; left: auto; z-index: 4; max-width: min(680px, calc(100% - 24px)); }
+.r5-rich-map-fallback { position: absolute; inset: 0; background: radial-gradient(circle at 55% 38%, #365949, #152a27 45%, #0a1517); }
+.r5-rich-map + .tabletop-command-controls { z-index: 8; }
+.r5-rich-map ~ .tabletop-board-svg { position: relative; z-index: 3; pointer-events: none; }
+.r5-rich-map ~ .tabletop-board-svg .tabletop-water,
+.r5-rich-map ~ .tabletop-board-svg .tabletop-landmass,
+.r5-rich-map ~ .tabletop-board-svg .tabletop-grid-line,
+.r5-rich-map ~ .tabletop-board-svg [aria-label="Strategic routes"] { opacity: 0; }
+.r5-rich-map ~ .tabletop-board-svg [data-region-id] { pointer-events: auto; }
+
 .tabletop-command-controls {
   position: absolute;
   z-index: 6;
