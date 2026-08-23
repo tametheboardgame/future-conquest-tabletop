@@ -1,18 +1,14 @@
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { CENTRAL_FRONT_BOARD } from './tabletop/board';
-import { commandPhaseStore } from './tabletop/command-store';
+import { tabletopGameStore } from './tabletop/game-store';
 import { CENTRAL_FRONT_PROTOTYPE_FORCE } from './tabletop/pieces';
 import { TabletopBoard } from './tabletop/TabletopBoard';
 
 export default function App() {
-  const round = useSyncExternalStore(commandPhaseStore.subscribe, commandPhaseStore.getSnapshot);
-  return (
-    <TabletopBoard
-      board={CENTRAL_FRONT_BOARD}
-      force={CENTRAL_FRONT_PROTOTYPE_FORCE}
-      round={round}
-      onSpendAction={commandPhaseStore.spend}
-      onPass={commandPhaseStore.pass}
-    />
-  );
+  const game = useSyncExternalStore(tabletopGameStore.subscribe, tabletopGameStore.getSnapshot);
+  const force = useMemo(() => ({
+    definitions: CENTRAL_FRONT_PROTOTYPE_FORCE.definitions,
+    pieces: Object.values(game.board.pieces)
+  }), [game.board.pieces]);
+  return <TabletopBoard board={CENTRAL_FRONT_BOARD} force={force} game={game} onAction={tabletopGameStore.dispatch} onPass={tabletopGameStore.pass} />;
 }

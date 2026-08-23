@@ -482,3 +482,9 @@ button,
     transform: none;
   }
 }
+.tabletop-action-row { flex-wrap: wrap; max-width: 440px; }
+.tabletop-command-controls { min-width: 430px; }
+.tabletop-command-controls button.is-active { border-color: #ead16e; color: #ead16e; background: #4b4932; }
+.tabletop-command-controls small { color: #b8c4b4; max-width: 420px; }
+.tabletop-execute-action { padding: 7px 10px; border: 1px solid #ead16e; border-radius: 5px; color: #151b15; background: #ead16e; cursor: pointer; }
+@media (max-width: 600px) { .tabletop-command-controls { min-width: 0; right: 18px; } }

@@ -6,7 +6,8 @@ import {
   type TabletopRegionDefinition
 } from './board';
 import type { TabletopPrototypeForce } from './pieces';
-import type { TabletopFormationTrait, TabletopPieceState, TabletopRoundState } from './state';
+import { legalTargets, type CoreActionRequest, type CoreActionType } from './core-actions';
+import type { TabletopFormationTrait, TabletopGameState, TabletopPieceState } from './state';
 
 function terrainGlyph(region: TabletopRegionDefinition): string {
   switch (region.terrain) {
@@ -60,8 +61,8 @@ function piecesByRegion(pieces: TabletopPieceState[]): Map<string, TabletopPiece
 interface TabletopBoardProps {
   board: TabletopBoardDefinition;
   force: TabletopPrototypeForce;
-  round: TabletopRoundState;
-  onSpendAction: () => void;
+  game: TabletopGameState;
+  onAction: (request: CoreActionRequest) => { ok: boolean; reason: string };
   onPass: () => void;
 }
 
@@ -70,7 +71,10 @@ const seatLabels: Record<string, string> = {
   'coalition-seat': 'Coalition'
 };
 
-export function TabletopBoard({ board, force, round, onSpendAction, onPass }: TabletopBoardProps) {
+export function TabletopBoard({ board, force, game, onAction, onPass }: TabletopBoardProps) {
+  const round = game.round;
+  const [selectedAction, setSelectedAction] = useState<CoreActionType>('move');
+  const [feedback, setFeedback] = useState('Select an action and a formation.');
   const [selectedRegionId, setSelectedRegionId] = useState('paris');
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
   const regionsById = useMemo(
@@ -84,9 +88,14 @@ export function TabletopBoard({ board, force, round, onSpendAction, onPass }: Ta
   const selectedDefinition = selectedPiece ? force.definitions[selectedPiece.definitionId] : null;
   const selectedRegion = regionsById.get(selectedPiece?.regionId ?? selectedRegionId) ?? board.regions[0];
   const topologyDestinationIds = useMemo(
-    () => new Set(selectedPiece ? adjacentRegionIds(board, selectedPiece.regionId) : []),
-    [board, selectedPiece]
+    () => new Set(legalTargets(game, selectedAction, selectedPiece?.id)),
+    [game, selectedAction, selectedPiece]
   );
+  const perform = (request: CoreActionRequest) => {
+    const result = onAction(request);
+    setFeedback(result.reason);
+    if (result.ok) setSelectedPieceId(null);
+  };
   const adjacent = selectedRegion
     ? adjacentRegionIds(board, selectedRegion.id).flatMap((id) => {
         const region = regionsById.get(id);
@@ -105,7 +114,12 @@ export function TabletopBoard({ board, force, round, onSpendAction, onPass }: Ta
 
   const selectRegion = (regionId: string) => {
     setSelectedRegionId(regionId);
-    if (!topologyDestinationIds.has(regionId)) setSelectedPieceId(null);
+    if (topologyDestinationIds.has(regionId)) {
+      if (selectedAction === 'scenario') perform({ type: 'scenario', seatId: round.activeSeatId, regionId, scenarioActionId: 'secure-objective' });
+      else if (selectedPiece && (selectedAction === 'move' || selectedAction === 'attack')) perform({ type: selectedAction, seatId: round.activeSeatId, pieceId: selectedPiece.id, targetRegionId: regionId });
+      return;
+    }
+    if (!selectedPiece) setSelectedPieceId(null);
   };
 
   return (
@@ -130,10 +144,13 @@ export function TabletopBoard({ board, force, round, onSpendAction, onPass }: Ta
         <div className="tabletop-command-controls" aria-live="polite">
           <span>{round.phase === 'command' ? `${seatLabels[round.activeSeatId]} activation` : 'Command Phase complete'}</span>
           <strong>{round.phase === 'command' ? `${round.commandActionsRemaining[round.activeSeatId]} actions remaining` : 'Proceed to Supply'}</strong>
-          <div>
-            <button type="button" onClick={onSpendAction} disabled={round.phase !== 'command'}>Spend Command Action</button>
+          <div className="tabletop-action-row">
+            {(['move', 'attack', 'recover', 'engineer', 'logistics', 'scenario'] as CoreActionType[]).map((action) => (
+              <button key={action} type="button" className={selectedAction === action ? 'is-active' : ''} onClick={() => { setSelectedAction(action); setFeedback(`${action} selected.`); }} disabled={round.phase !== 'command'}>{action === 'recover' ? 'Recover' : action[0].toUpperCase() + action.slice(1)}</button>
+            ))}
             <button type="button" onClick={onPass} disabled={round.phase !== 'command'}>Pass</button>
           </div>
+          <small>{feedback}</small>
         </div>
         <svg
           className="tabletop-board-svg"
@@ -283,6 +300,12 @@ export function TabletopBoard({ board, force, round, onSpendAction, onPass }: Ta
             <div className="tabletop-piece-traits">
               {selectedPiece.traits.map((trait) => <span key={trait}>{traitName(trait)}</span>)}
             </div>
+            {(selectedAction === 'recover' || selectedAction === 'logistics') && topologyDestinationIds.has(selectedPiece.id) && (
+              <button className="tabletop-execute-action" type="button" onClick={() => perform({ type: selectedAction, seatId: round.activeSeatId, pieceId: selectedPiece.id })}>Execute {selectedAction}</button>
+            )}
+            {selectedAction === 'engineer' && [...topologyDestinationIds].map((routeId) => (
+              <button className="tabletop-execute-action" key={routeId} type="button" onClick={() => perform({ type: 'engineer', seatId: round.activeSeatId, pieceId: selectedPiece.id, routeId })}>Repair {routeId}</button>
+            ))}
             <p className="tabletop-adjacent-list">
               <span>Position</span>
               {selectedRegion.name}
@@ -314,7 +337,7 @@ export function TabletopBoard({ board, force, round, onSpendAction, onPass }: Ta
         )}
 
         <div className="tabletop-prototype-note">
-          Select a formation to preview adjacent destinations. Movement execution arrives in WP2.
+          All successful core actions use the authoritative Command Action dispatcher. Highlighted rings are legal targets.
         </div>
       </section>
     </main>

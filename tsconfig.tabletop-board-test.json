@@ -15,6 +15,7 @@
     "src/tabletop/board.ts",
     "src/tabletop/state.ts",
     "src/tabletop/pieces.ts",
-    "src/tabletop/command-phase.ts"
+    "src/tabletop/command-phase.ts",
+    "src/tabletop/core-actions.ts"
   ]
 }
