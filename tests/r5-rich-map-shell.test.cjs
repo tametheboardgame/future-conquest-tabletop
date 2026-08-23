@@ -43,6 +43,33 @@ test('launch reveal avoids a whole-renderer inert transition and reflows the per
   assert.doesNotMatch(startup, /launched\s*\?\s*children/);
 });
 
+test('BG0 stages the optional WebGL runtime behind launch and retains a stable map fallback', () => {
+  assert.doesNotMatch(backdrop, /^import \{ TerrainMapPrototypeImpl \}/m);
+  assert.match(backdrop, /lazy\(async \(\) =>/);
+  assert.match(backdrop, /import\('\.\.\/components\/TerrainMapPrototypeImpl'\)/);
+  assert.match(backdrop, /R5_GAME_REVEALED_EVENT/);
+  assert.match(backdrop, /requestAnimationFrame/);
+  assert.match(backdrop, /LazyStableMap/);
+  assert.match(terrain, /readiness diagnostic/);
+  assert.match(terrain, /did not settle promptly/);
+});
+
+test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer and map interaction', () => {
+  const workflow = readFileSync('.github/workflows/r5-bg0-browser-runtime.yml', 'utf8');
+  const probe = readFileSync('scripts/probe-r5-bg0-runtime.mjs', 'utf8');
+  assert.match(workflow, /Checkout exact PR head/);
+  assert.match(workflow, /probe-r5-bg0-runtime\.mjs/);
+  assert.match(probe, /BEGIN CAMPAIGN/);
+  assert.match(probe, /main-thread heartbeat/);
+  assert.match(probe, /\.r3-tabletop-shell/);
+  assert.match(probe, /\.r3-tray-toggle/);
+  assert.match(probe, /Duplicate terrain runtime/);
+  assert.match(probe, /maplibre/);
+  assert.match(probe, /pageerror/);
+  assert.match(probe, /requestfailed/);
+  assert.match(probe, /screenshot/);
+});
+
 test('adapter projects stable renderer ids from R5 authority and legal actions', () => {
   assert.match(adapter, /authority: 'r5-tabletop'/);
   assert.match(adapter, /legalTargets\(input\.game/);
