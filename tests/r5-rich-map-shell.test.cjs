@@ -9,6 +9,7 @@ const backdrop = readFileSync('src/tabletop/RichMapBackdrop.tsx', 'utf8');
 const adapter = readFileSync('src/presentation/r5-rich-map-adapter.ts', 'utf8');
 const projection = readFileSync('src/tabletop/rich-map-adapter.ts', 'utf8');
 const startup = readFileSync('src/tabletop/R5StartupExperience.tsx', 'utf8');
+const terrain = readFileSync('src/components/TerrainMapPrototypeImpl.tsx', 'utf8');
 const css = readFileSync('src/tabletop/r3-tabletop-shell.css', 'utf8');
 
 test('production mounts the restored R3 shell instead of either abstract board', () => {
@@ -29,7 +30,17 @@ test('historical startup, title and audio host remains the production entry', ()
   assert.match(startup, /startup-launcher/);
   assert.match(startup, /audioManager\.requestMusic\(launched \? 'game' : 'title'\)/);
   assert.match(startup, /GlobalSettingsPanel/);
-  assert.doesNotMatch(startup, /GameState|dispatch|newGame/);
+  assert.doesNotMatch(startup, /GameState|dispatchCoreAction|newGame/);
+});
+
+test('launch reveal avoids a whole-renderer inert transition and reflows the persistent map', () => {
+  assert.doesNotMatch(startup, /inert=|aria-hidden=\{!launched\}/);
+  assert.match(startup, /requestAnimationFrame/);
+  assert.match(startup, /dispatchEvent\(new Event\(R5_GAME_REVEALED_EVENT\)\)/);
+  assert.match(terrain, /addEventListener\(R5_GAME_REVEALED_EVENT, resizeAfterReveal\)/);
+  assert.match(terrain, /mapRef\.current\?\.resize\(\)/);
+  assert.match(terrain, /mapRef\.current\?\.triggerRepaint\(\)/);
+  assert.doesNotMatch(startup, /launched\s*\?\s*children/);
 });
 
 test('adapter projects stable renderer ids from R5 authority and legal actions', () => {
