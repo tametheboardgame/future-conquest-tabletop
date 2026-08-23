@@ -1,6 +1,6 @@
 # Future Conquest Tabletop Development Status
 
-Last updated: 2026-08-21
+Last updated: 2026-08-23
 
 ## Current programme
 
@@ -46,3 +46,23 @@ For this repository, the current `main` branch plus the R5 documents listed abov
 Any automated worker, Codex task or supervisor must follow R5 unless David explicitly authorises a different programme.
 
 Inherited R3 documents remain available for technical/reference history only and must not be interpreted as active programme authority.
+
+## Required test boundary
+
+Required build/deploy CI validates the application that R5 currently ships rather than
+wildcard-running every historical source-contract test in `tests/`. `npm test` is the
+authoritative pre-build gate and contains three explicit groups:
+
+1. deterministic engine/domain/state and persistence tests retained for reusable
+   behaviour (`npm run test:engine`);
+2. current tabletop state, interaction and WP1.2 presentation tests
+   (`npm run test:r5`); and
+3. focused generated-asset integrity regressions that protect the strict production
+   build (`npm run test:production-assets`).
+
+The remaining R2/R3 tests are historical UI, entrypoint, map-renderer, panel-composition
+or source-string contracts. They remain in the repository for the dedicated historical
+workflows and reference, but are not requirements on the intentionally replaced R5
+React composition. This boundary does not relax production checks: required CI also
+runs the current TypeScript check, the full `npm run build` lifecycle, and its strict
+postbuild motion-comic, title-card and ending-asset verifiers.
