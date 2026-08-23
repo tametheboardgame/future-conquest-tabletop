@@ -47,10 +47,21 @@ test('Pass 5 builder emits deterministic self-hosted glTF assets with meaningful
     assert.equal(doc.asset.version,'2.0');
     assert.match(doc.asset.generator,/WP3\.8E authored geometry builder/);
     assert.ok(doc.meshes[0].primitives.length>=10);
+    for(const accessor of doc.accessors.filter(({type})=>type==='VEC3')){
+      assert.equal(accessor.min.length,3);
+      assert.equal(accessor.max.length,3);
+      assert.ok([...accessor.min,...accessor.max].every(Number.isFinite),`${evidence.name} POSITION bounds must be finite`);
+    }
     assert.ok(evidence.faces>=minimums[evidence.name],`${evidence.name} face count ${evidence.faces}`);
     assert.equal(evidence.sha256.length,64);
     assert.match(doc.buffers[0].uri,/^data:application\/octet-stream;base64,/);
   }
+});
+
+test('Pass 5 geometry helpers reject degenerate segments before normalisation',()=>{
+  assert.match(build,/function rod[\s\S]*?L<=1e-9\)return;vx\/=L/);
+  assert.match(build,/function beam[\s\S]*?L<=1e-9\)return;vx\/=L/);
+  assert.match(build,/accessor POSITION has invalid min\/max/);
 });
 
 test('Namur builder encodes broad bastioned Citadel and subordinate domed cathedral',()=>{

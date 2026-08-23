@@ -32,7 +32,7 @@ function builder(materials){
   }
   function rod(k,a,b,r=.02,n=6){
     const g=G[k],base=g.p.length/3;let vx=b[0]-a[0],vy=b[1]-a[1],vz=b[2]-a[2];
-    const L=Math.hypot(vx,vy,vz);vx/=L;vy/=L;vz/=L;
+    const L=Math.hypot(vx,vy,vz);if(!Number.isFinite(L)||L<=1e-9)return;vx/=L;vy/=L;vz/=L;
     let ux=-vy,uy=vx,uz=0;if(Math.hypot(ux,uy,uz)<.01){ux=0;uy=-vz;uz=vy}
     const uL=Math.hypot(ux,uy,uz);ux/=uL;uy/=uL;uz/=uL;
     const wx=vy*uz-vz*uy,wy=vz*ux-vx*uz,wz=vx*uy-vy*ux;
@@ -42,7 +42,7 @@ function builder(materials){
   }
   function beam(k,a,b,width=.12,depth=.10){
     const g=G[k],base=g.p.length/3;
-    let vx=b[0]-a[0],vy=b[1]-a[1],vz=b[2]-a[2];const L=Math.hypot(vx,vy,vz);vx/=L;vy/=L;vz/=L;
+    let vx=b[0]-a[0],vy=b[1]-a[1],vz=b[2]-a[2];const L=Math.hypot(vx,vy,vz);if(!Number.isFinite(L)||L<=1e-9)return;vx/=L;vy/=L;vz/=L;
     let ux=-vy,uy=vx,uz=0;if(Math.hypot(ux,uy,uz)<.01){ux=1;uy=0;uz=0}
     const uL=Math.hypot(ux,uy,uz);ux/=uL;uy/=uL;uz/=uL;
     const wx=vy*uz-vz*uy,wy=vz*ux-vx*uz,wz=vx*uy-vy*ux;
@@ -74,6 +74,7 @@ function emit(filename,nodeName,materials,metallic,build){
     const pb=Buffer.from(new Float32Array(g.p).buffer);const pv=views.push({buffer:0,byteOffset:off,byteLength:pb.length,target:34962})-1;chunks.push(pb);off+=pb.length;
     const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
     for(let j=0;j<g.p.length;j+=3)for(let q=0;q<3;q++){min[q]=Math.min(min[q],g.p[j+q]);max[q]=Math.max(max[q],g.p[j+q])}
+    if([...min,...max].some(value=>!Number.isFinite(value)))throw new Error(`${filename}: accessor POSITION has invalid min/max`);
     const pa=accessors.push({bufferView:pv,componentType:5126,count:g.p.length/3,type:'VEC3',min,max})-1;
     align();const ib=Buffer.from(new Uint32Array(g.i).buffer);const iv=views.push({buffer:0,byteOffset:off,byteLength:ib.length,target:34963})-1;chunks.push(ib);off+=ib.length;
     const ia=accessors.push({bufferView:iv,componentType:5125,count:g.i.length,type:'SCALAR'})-1;
