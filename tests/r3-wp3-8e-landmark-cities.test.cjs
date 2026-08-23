@@ -64,6 +64,13 @@ test('Pass 5 geometry helpers reject degenerate segments before normalisation',(
   assert.match(build,/accessor POSITION has invalid min\/max/);
 });
 
+test('Pass 5 rejects empty or malformed indexed geometry before writing glTF accessors',()=>{
+  assert.match(build,/generated \$\{faces\} faces; expected at least \$\{minimumFaces\}/);
+  assert.match(build,/g\.p\.length%3\|\|g\.i\.length%3/);
+  assert.match(build,/index>=g\.p\.length\/3/);
+  assert.match(build,/fileURLToPath\(import\.meta\.url\)/);
+});
+
 test('Namur builder encodes broad bastioned Citadel and subordinate domed cathedral',()=>{
   assert.match(build,/function namur/);
   assert.match(build,/prism\('fort'/);
