@@ -18,11 +18,14 @@ test('Move uses adjacency, updates the authoritative piece, spends once and resu
   verifyBoundary(state, result, next => assert.equal(next.board.pieces['ff-spearhead-alpha-piece'].regionId, 'bohemia'));
 });
 
-test('Attack uses deterministic replaceable resolution', () => {
+test('Attack uses deterministic authoritative resolution', () => {
   let state = createTabletopGame();
   state.board.pieces['pc-polish-first-piece'].regionId = 'western-ukraine';
   const result = act(state, { type: 'attack', pieceId: 'ff-spearhead-alpha-piece', targetRegionId: 'western-ukraine' });
-  verifyBoundary(state, result, next => assert.equal(next.board.pieces['pc-polish-first-piece'].strength, 3));
+  verifyBoundary(state, result, next => {
+    assert.equal(next.random.cursor, 5);
+    assert.match(result.reason, /3 vs 2 dice/);
+  });
 });
 
 test('Recover respects scenario formation maximum', () => {
