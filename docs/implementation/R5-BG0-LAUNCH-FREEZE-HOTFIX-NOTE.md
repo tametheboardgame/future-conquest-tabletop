@@ -1,0 +1,1 @@
+This hotfix exists solely to restore a responsive BG0 launch transition. It must not expand scope beyond the launch/runtime regression or begin later board-game roadmap packages.
