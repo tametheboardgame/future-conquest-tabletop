@@ -488,3 +488,14 @@ button,
 .tabletop-command-controls small { color: #b8c4b4; max-width: 420px; }
 .tabletop-execute-action { padding: 7px 10px; border: 1px solid #ead16e; border-radius: 5px; color: #151b15; background: #ead16e; cursor: pointer; }
 @media (max-width: 600px) { .tabletop-command-controls { min-width: 0; right: 18px; } }
+.tabletop-combat-preview {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+  padding: 0.65rem;
+  border: 1px solid rgba(233, 190, 93, 0.65);
+  background: rgba(13, 19, 25, 0.92);
+}
+
+.tabletop-combat-preview span { font-size: 0.75rem; }
+.tabletop-combat-preview div { display: flex; gap: 0.4rem; }

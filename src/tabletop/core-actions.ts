@@ -1,5 +1,6 @@
 import { CENTRAL_FRONT_BOARD, adjacentRegionIds, connectionsForRegion, type TabletopBoardDefinition } from './board';
 import { spendCommandAction } from './command-phase';
+import { previewCombat, resolveCombat, type CombatPreview } from './combat';
 import { CENTRAL_FRONT_PROTOTYPE_FORCE } from './pieces';
 import {
   TABLETOP_RULES_VERSION,
@@ -25,27 +26,20 @@ export interface CoreActionResult {
   reason: string;
 }
 
-export interface AttackResolution {
-  pieces: Record<string, TabletopPieceState>;
-  feedback: string;
-}
-
-export type AttackResolver = (attacker: TabletopPieceState, defenders: TabletopPieceState[]) => AttackResolution;
-export interface CoreActionRules { board: TabletopBoardDefinition; attackResolver: AttackResolver }
+export interface CoreActionRules { board: TabletopBoardDefinition }
 
 const factionForSeat = (state: TabletopGameState, seatId: string): TabletopFactionId | null => state.seats[seatId]?.factionId ?? null;
 const piecesIn = (state: TabletopGameState, regionId: string) => Object.values(state.board.pieces).filter((piece) => piece.regionId === regionId);
 const maxStrength = (piece: TabletopPieceState) => CENTRAL_FRONT_PROTOTYPE_FORCE.pieces.find((candidate) => candidate.id === piece.id)?.strength ?? piece.strength;
 
-/** Deterministic one-step attrition placeholder. WP3 can replace this resolver without changing dispatch. */
-export const placeholderAttackResolver: AttackResolver = (_attacker, defenders) => {
-  const target = [...defenders].sort((a, b) => a.id.localeCompare(b.id))[0];
-  const pieces: Record<string, TabletopPieceState> = Object.fromEntries(defenders.slice(1).map((piece) => [piece.id, piece]));
-  if (target.strength > 1) pieces[target.id] = { ...target, strength: target.strength - 1, readiness: 'damaged' };
-  return { pieces, feedback: target.strength > 1 ? `${target.definitionId} lost 1 strength.` : `${target.definitionId} was removed.` };
-};
+export const DEFAULT_CORE_ACTION_RULES: CoreActionRules = { board: CENTRAL_FRONT_BOARD };
 
-export const DEFAULT_CORE_ACTION_RULES: CoreActionRules = { board: CENTRAL_FRONT_BOARD, attackResolver: placeholderAttackResolver };
+export function previewAttack(state: TabletopGameState, pieceId: string, targetRegionId: string, rules = DEFAULT_CORE_ACTION_RULES): CombatPreview | null {
+  const attacker = state.board.pieces[pieceId];
+  if (!attacker || !legalTargets(state, 'attack', pieceId, rules).includes(targetRegionId)) return null;
+  const defenders = piecesIn(state, targetRegionId).filter((piece) => piece.factionId !== attacker.factionId);
+  return previewCombat(rules.board, attacker, defenders);
+}
 
 export function createTabletopGame(): TabletopGameState {
   const regions = Object.fromEntries(CENTRAL_FRONT_BOARD.regions.map((region) => [region.id, {
@@ -121,11 +115,13 @@ export function dispatchCoreAction(state: TabletopGameState, request: CoreAction
     next.board.regions[request.targetRegionId].controller = faction;
     reason = `${piece.definitionId} moved.`;
   } else if (request.type === 'attack' && piece) {
-    const defenders = piecesIn(state, request.targetRegionId).filter((p) => p.factionId !== faction);
-    const resolution = rules.attackResolver(piece, defenders);
-    for (const defender of defenders) delete next.board.pieces[defender.id];
-    Object.assign(next.board.pieces, resolution.pieces);
-    if (!Object.values(next.board.pieces).some((p) => p.regionId === request.targetRegionId && p.factionId !== faction)) next.board.regions[request.targetRegionId].controller = faction;
+    const resolution = resolveCombat(state, rules.board, piece.id, request.targetRegionId);
+    next.board.pieces = resolution.pieces;
+    next.random = resolution.random;
+    if (next.board.pieces[piece.id]
+      && !Object.values(next.board.pieces).some((p) => p.regionId === request.targetRegionId && p.factionId !== faction)) {
+      next.board.regions[request.targetRegionId].controller = faction;
+    }
     reason = `Attack resolved: ${resolution.feedback}`;
   } else if (request.type === 'recover' && piece) {
     const current = next.board.pieces[piece.id];

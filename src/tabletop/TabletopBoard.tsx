@@ -6,7 +6,7 @@ import {
   type TabletopRegionDefinition
 } from './board';
 import type { TabletopPrototypeForce } from './pieces';
-import { legalTargets, type CoreActionRequest, type CoreActionType } from './core-actions';
+import { legalTargets, previewAttack, type CoreActionRequest, type CoreActionType } from './core-actions';
 import type { TabletopFormationTrait, TabletopGameState, TabletopPieceState } from './state';
 
 function terrainGlyph(region: TabletopRegionDefinition): string {
@@ -77,13 +77,15 @@ export function TabletopBoard({ board, force, game, onAction, onPass }: Tabletop
   const [feedback, setFeedback] = useState('Select an action and a formation.');
   const [selectedRegionId, setSelectedRegionId] = useState('paris');
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
+  const [pendingAttackRegionId, setPendingAttackRegionId] = useState<string | null>(null);
   const regionsById = useMemo(
     () => new Map(board.regions.map((region) => [region.id, region])),
     [board.regions]
   );
-  const regionPieces = useMemo(() => piecesByRegion(force.pieces), [force.pieces]);
+  const authoritativePieces = useMemo(() => Object.values(game.board.pieces), [game.board.pieces]);
+  const regionPieces = useMemo(() => piecesByRegion(authoritativePieces), [authoritativePieces]);
   const selectedPiece = selectedPieceId
-    ? force.pieces.find((piece) => piece.id === selectedPieceId) ?? null
+    ? game.board.pieces[selectedPieceId] ?? null
     : null;
   const selectedDefinition = selectedPiece ? force.definitions[selectedPiece.definitionId] : null;
   const selectedRegion = regionsById.get(selectedPiece?.regionId ?? selectedRegionId) ?? board.regions[0];
@@ -103,11 +105,15 @@ export function TabletopBoard({ board, force, game, onAction, onPass }: Tabletop
       })
     : [];
   const selectedConnections = selectedRegion ? connectionsForRegion(board, selectedRegion.id) : [];
+  const attackPreview = selectedPiece && pendingAttackRegionId
+    ? previewAttack(game, selectedPiece.id, pendingAttackRegionId)
+    : null;
   const objectiveByRegion = useMemo(
     () => new Map(board.objectives.map((objective) => [objective.regionId, objective])),
     [board.objectives]
   );
   const selectPiece = (piece: TabletopPieceState) => {
+    setPendingAttackRegionId(null);
     setSelectedPieceId(piece.id);
     setSelectedRegionId(piece.regionId);
   };
@@ -116,7 +122,8 @@ export function TabletopBoard({ board, force, game, onAction, onPass }: Tabletop
     setSelectedRegionId(regionId);
     if (topologyDestinationIds.has(regionId)) {
       if (selectedAction === 'scenario') perform({ type: 'scenario', seatId: round.activeSeatId, regionId, scenarioActionId: 'secure-objective' });
-      else if (selectedPiece && (selectedAction === 'move' || selectedAction === 'attack')) perform({ type: selectedAction, seatId: round.activeSeatId, pieceId: selectedPiece.id, targetRegionId: regionId });
+      else if (selectedPiece && selectedAction === 'attack') setPendingAttackRegionId(regionId);
+      else if (selectedPiece && selectedAction === 'move') perform({ type: 'move', seatId: round.activeSeatId, pieceId: selectedPiece.id, targetRegionId: regionId });
       return;
     }
     if (!selectedPiece) setSelectedPieceId(null);
@@ -151,6 +158,16 @@ export function TabletopBoard({ board, force, game, onAction, onPass }: Tabletop
             <button type="button" onClick={onPass} disabled={round.phase !== 'command'}>Pass</button>
           </div>
           <small>{feedback}</small>
+          {attackPreview && selectedPiece && pendingAttackRegionId && (
+            <div className="tabletop-combat-preview" role="dialog" aria-label="Attack preview">
+              <strong>{attackPreview.attackerDice} attack dice vs {attackPreview.defenderDice} defence dice · {attackPreview.advantage} advantage</strong>
+              <span>{attackPreview.modifiers.length ? attackPreview.modifiers.map((modifier) => modifier.reason).join(' · ') : 'No situational modifiers.'}</span>
+              <div>
+                <button type="button" onClick={() => perform({ type: 'attack', seatId: round.activeSeatId, pieceId: selectedPiece.id, targetRegionId: pendingAttackRegionId })}>Confirm attack</button>
+                <button type="button" onClick={() => setPendingAttackRegionId(null)}>Cancel</button>
+              </div>
+            </div>
+          )}
         </div>
         <svg
           className="tabletop-board-svg"
