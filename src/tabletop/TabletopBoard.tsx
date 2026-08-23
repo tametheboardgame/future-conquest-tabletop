@@ -6,7 +6,7 @@ import {
   type TabletopRegionDefinition
 } from './board';
 import type { TabletopPrototypeForce } from './pieces';
-import type { TabletopFormationTrait, TabletopPieceState } from './state';
+import type { TabletopFormationTrait, TabletopPieceState, TabletopRoundState } from './state';
 
 function terrainGlyph(region: TabletopRegionDefinition): string {
   switch (region.terrain) {
@@ -60,9 +60,17 @@ function piecesByRegion(pieces: TabletopPieceState[]): Map<string, TabletopPiece
 interface TabletopBoardProps {
   board: TabletopBoardDefinition;
   force: TabletopPrototypeForce;
+  round: TabletopRoundState;
+  onSpendAction: () => void;
+  onPass: () => void;
 }
 
-export function TabletopBoard({ board, force }: TabletopBoardProps) {
+const seatLabels: Record<string, string> = {
+  'future-seat': 'Future Force',
+  'coalition-seat': 'Coalition'
+};
+
+export function TabletopBoard({ board, force, round, onSpendAction, onPass }: TabletopBoardProps) {
   const [selectedRegionId, setSelectedRegionId] = useState('paris');
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
   const regionsById = useMemo(
@@ -90,9 +98,6 @@ export function TabletopBoard({ board, force }: TabletopBoardProps) {
     () => new Map(board.objectives.map((objective) => [objective.regionId, objective])),
     [board.objectives]
   );
-  const futureCount = force.pieces.filter((piece) => piece.factionId === 'future-force').length;
-  const coalitionCount = force.pieces.length - futureCount;
-
   const selectPiece = (piece: TabletopPieceState) => {
     setSelectedPieceId(piece.id);
     setSelectedRegionId(piece.regionId);
@@ -113,14 +118,23 @@ export function TabletopBoard({ board, force }: TabletopBoardProps) {
             <p>{board.subtitle}</p>
           </div>
         </div>
-        <div className="tabletop-round-strip" aria-label="Prototype status">
-          <div><span>Build</span><strong>R5-WP1.2</strong></div>
-          <div><span>Future</span><strong>{futureCount}</strong></div>
-          <div><span>Coalition</span><strong>{coalitionCount}</strong></div>
+        <div className="tabletop-round-strip" aria-label="Command Phase status">
+          <div><span>Round</span><strong>{round.round} / {round.maxRounds}</strong></div>
+          <div><span>Current side</span><strong>{round.phase === 'command' ? seatLabels[round.activeSeatId] : 'Phase ended'}</strong></div>
+          <div><span>Future actions</span><strong>{round.commandActionsRemaining['future-seat']}</strong></div>
+          <div><span>Coalition actions</span><strong>{round.commandActionsRemaining['coalition-seat']}</strong></div>
         </div>
       </header>
 
       <section className="tabletop-board-stage" aria-label={`${board.name} strategic board`}>
+        <div className="tabletop-command-controls" aria-live="polite">
+          <span>{round.phase === 'command' ? `${seatLabels[round.activeSeatId]} activation` : 'Command Phase complete'}</span>
+          <strong>{round.phase === 'command' ? `${round.commandActionsRemaining[round.activeSeatId]} actions remaining` : 'Proceed to Supply'}</strong>
+          <div>
+            <button type="button" onClick={onSpendAction} disabled={round.phase !== 'command'}>Spend Command Action</button>
+            <button type="button" onClick={onPass} disabled={round.phase !== 'command'}>Pass</button>
+          </div>
+        </div>
         <svg
           className="tabletop-board-svg"
           viewBox="0 150 1200 580"
