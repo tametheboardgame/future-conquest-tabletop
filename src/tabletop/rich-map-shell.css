@@ -15,3 +15,6 @@
 @media(max-width:900px){.rich-map-shell{min-width:0}.rich-map-stage{min-height:70vh}}
 .rich-map-physical-terrain{opacity:.82;filter:saturate(.86) contrast(1.13)}
 .rich-map-physical-terrain+.rich-map-landmass{fill:rgba(60,91,72,.32)}
+.rich-map-stage>.r5-rich-map{position:absolute;inset:0;z-index:-1}
+.rich-map-stage>.r5-rich-map+.tabletop-command-controls{z-index:4}
+.rich-map-stage>.tabletop-board-svg{opacity:.34;mix-blend-mode:screen;pointer-events:none}

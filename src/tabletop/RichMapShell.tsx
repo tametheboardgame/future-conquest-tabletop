@@ -9,6 +9,7 @@ import {
 import type { TabletopPrototypeForce } from './pieces';
 import { legalTargets, previewAttack, type CoreActionRequest, type CoreActionResult, type CoreActionType } from './core-actions';
 import type { CombatResolution } from './combat';
+import { RichMapBackdrop } from './RichMapBackdrop';
 import type { TabletopFormationTrait, TabletopGameState, TabletopPieceState } from './state';
 
 function terrainGlyph(region: TabletopRegionDefinition): string {
@@ -158,6 +159,7 @@ export function RichMapShell({ board, force, game, onAction, onPass }: RichMapSh
       </header>
 
       <section className="tabletop-board-stage rich-map-stage" aria-label={`${board.name} strategic board`}>
+        <RichMapBackdrop board={board} force={force} game={game} selectedPieceId={selectedPieceId} selectedRegionId={selectedRegionId} onSelectPiece={(pieceId) => { const piece = game.board.pieces[pieceId]; if (piece) selectPiece(piece); }} onSelectRegion={selectRegion} />
         <div className="tabletop-command-controls" aria-live="polite">
           <span>{round.phase === 'command' ? `${seatLabels[round.activeSeatId]} activation` : 'Command Phase complete'}</span>
           <strong>{round.phase === 'command' ? `${round.commandActionsRemaining[round.activeSeatId]} actions remaining` : 'Proceed to Supply'}</strong>
