@@ -132,6 +132,47 @@ button,
     linear-gradient(180deg, rgba(11, 21, 18, 0.1), rgba(4, 9, 8, 0.55));
 }
 
+.tabletop-command-controls {
+  position: absolute;
+  z-index: 6;
+  top: 16px;
+  left: 18px;
+  display: grid;
+  gap: 5px;
+  min-width: 260px;
+  padding: 11px 13px;
+  border: 1px solid rgba(229, 198, 95, 0.42);
+  border-radius: 7px;
+  background: rgba(8, 14, 12, 0.94);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
+}
+
+.tabletop-command-controls > span {
+  color: #ead16e;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tabletop-command-controls > div {
+  display: flex;
+  gap: 7px;
+  margin-top: 4px;
+}
+
+.tabletop-command-controls button {
+  padding: 7px 9px;
+  border: 1px solid rgba(223, 233, 209, 0.25);
+  border-radius: 5px;
+  color: #f2f5e9;
+  background: #34473b;
+  cursor: pointer;
+}
+
+.tabletop-command-controls button:last-child { background: #252f2a; }
+.tabletop-command-controls button:disabled { cursor: default; opacity: 0.45; }
+
 .tabletop-board-svg {
   display: block;
   width: 100%;

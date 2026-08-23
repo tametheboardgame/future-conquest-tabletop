@@ -14,6 +14,7 @@
   "include": [
     "src/tabletop/board.ts",
     "src/tabletop/state.ts",
-    "src/tabletop/pieces.ts"
+    "src/tabletop/pieces.ts",
+    "src/tabletop/command-phase.ts"
   ]
 }

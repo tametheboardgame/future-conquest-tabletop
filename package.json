@@ -9,7 +9,7 @@
     "dev": "vite",
     "test": "npm run test:engine && npm run test:r5 && npm run test:production-assets",
     "test:engine": "node scripts/run-engine-tests.mjs",
-    "test:r5": "node scripts/run-tabletop-board-tests.mjs && node --test tests/r5-wp1.2-board-presentation.test.cjs",
+    "test:r5": "node scripts/run-tabletop-board-tests.mjs && node --test tests/r5-wp1.2-board-presentation.test.cjs tests/r5-wp2.1-command-phase.test.cjs",
     "test:production-assets": "node --test tests/motion-comic-production-assets.test.cjs tests/r3-wp3-8a-landmark-cities.test.cjs tests/r3-wp3-8b-landmark-cities.test.cjs tests/r3-wp3-8c-landmark-cities.test.cjs tests/r3-wp3-8d-landmark-cities.test.cjs tests/r3-wp3-8e-landmark-cities.test.cjs",
     "simulate:current-balance": "node scripts/simulate-current-engine-balance.mjs",
     "benchmark:r3-renderer": "node scripts/benchmark-r3-renderer-spike.mjs",
