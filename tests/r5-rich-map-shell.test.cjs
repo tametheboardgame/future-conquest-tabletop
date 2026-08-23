@@ -4,24 +4,28 @@ const { readFileSync } = require('node:fs');
 
 const app = readFileSync('src/App.tsx', 'utf8');
 const main = readFileSync('src/main.tsx', 'utf8');
-const shell = readFileSync('src/tabletop/RichMapShell.tsx', 'utf8');
+const shell = readFileSync('src/tabletop/R3TabletopShell.tsx', 'utf8');
 const backdrop = readFileSync('src/tabletop/RichMapBackdrop.tsx', 'utf8');
 const adapter = readFileSync('src/presentation/r5-rich-map-adapter.ts', 'utf8');
 const projection = readFileSync('src/tabletop/rich-map-adapter.ts', 'utf8');
 const startup = readFileSync('src/tabletop/R5StartupExperience.tsx', 'utf8');
-const css = readFileSync('src/tabletop/rich-map-shell.css', 'utf8');
+const css = readFileSync('src/tabletop/r3-tabletop-shell.css', 'utf8');
 
-test('production mounts the R3 physical terrain host and no abstract SVG board', () => {
-  assert.match(app, /<RichMapShell/);
-  assert.match(main, /<R5StartupExperience><App/);
-  assert.match(backdrop, /TerrainMapPrototypeImpl/);
+test('production mounts the restored R3 shell instead of either abstract board', () => {
+  assert.match(app, /import \{ R3TabletopShell \}/);
+  assert.match(app, /<R3TabletopShell/);
+  assert.doesNotMatch(app, /<TabletopBoard|<RichMapShell/);
+  assert.match(shell, /data-presentation="r3-wp6\.6-shell"/);
   assert.match(shell, /<RichMapBackdrop/);
-  assert.doesNotMatch(shell, /<svg|tabletop-region-disc|rich-map-landmass|circular|node/i);
-  assert.match(shell, /data-visual-host="r3-wp6\.6"/);
-  assert.match(css, /r5-command-rail/);
+  assert.match(backdrop, /TerrainMapPrototypeImpl/);
+  assert.doesNotMatch(shell, /tabletop-board-svg|rich-map-board|<svg/);
+  assert.match(css, /r3-command-rail/);
+  assert.match(css, /r3-map-host/);
 });
 
-test('preserved startup and audio presentation remains the production gateway', () => {
+test('historical startup, title and audio host remains the production entry', () => {
+  assert.match(main, /<R5StartupExperience><App \/><\/R5StartupExperience>/);
+  assert.match(main, /r3-wp6-6-command-shell-follow-up\.css/);
   assert.match(startup, /startup-launcher/);
   assert.match(startup, /audioManager\.requestMusic\(launched \? 'game' : 'title'\)/);
   assert.match(startup, /GlobalSettingsPanel/);
@@ -38,19 +42,19 @@ test('adapter projects stable renderer ids from R5 authority and legal actions',
   assert.match(shell, /data-authority="r5-tabletop"/);
 });
 
-test('legacy renderer state is one-way and map actions remain dispatcher-owned', () => {
+test('legacy renderer projection is one-way and actions remain dispatcher-owned', () => {
   assert.match(projection, /presentation-only/);
   assert.match(projection, /No value returned here is ever dispatched back/);
-  assert.match(shell, /onAction\(request\)/);
-  assert.match(shell, /frame\.legalTargetRegionIds/);
-  assert.match(shell, /type: 'move'/);
-  assert.match(shell, /type: 'attack'/);
-  assert.doesNotMatch(shell, /Math\.random|localStorage|dispatchCoreAction|setGame/);
+  assert.match(shell, /legalTargets\(game, action/);
+  assert.match(shell, /onSelectPiece=\{selectPiece\}/);
+  assert.match(shell, /onAction\(\{ type: 'move'/);
+  assert.match(shell, /onAction\(\{ type: 'attack'/);
+  assert.doesNotMatch(shell, /from '..\/game\/engine'|issueMove|beginOperation|Math\.random|localStorage|setGame|setState/);
 });
 
-test('only the minimal board-game action surface is exposed', () => {
-  assert.match(shell, /MOVE/);
-  assert.match(shell, /ATTACK/);
-  assert.match(shell, /r5-board-tray/);
+test('only compact tabletop actions are exposed over the map', () => {
+  assert.match(shell, />Move</);
+  assert.match(shell, />Attack</);
+  assert.match(shell, /r3-board-tray/);
   assert.doesNotMatch(shell, /Resolve all orders|END DAY|Engineering|Logistics|Operations|command dice|card hand|escalation deck/i);
 });
