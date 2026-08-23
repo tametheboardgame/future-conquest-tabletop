@@ -1,0 +1,126 @@
+.tabletop-destination-ring {
+  fill: rgba(105, 202, 151, 0.08);
+  stroke: #6fcb98;
+  stroke-width: 3;
+  stroke-dasharray: 7 5;
+  pointer-events: none;
+  animation: tabletop-destination-pulse 1.6s ease-in-out infinite;
+}
+
+.tabletop-region.is-destination .tabletop-region-halo {
+  stroke: #7fd8a6;
+  fill: rgba(87, 174, 124, 0.13);
+}
+
+.tabletop-piece {
+  cursor: pointer;
+  outline: none;
+}
+
+.tabletop-piece-shadow {
+  fill: rgba(0, 0, 0, 0.48);
+  pointer-events: none;
+}
+
+.tabletop-piece-counter {
+  stroke-width: 2.5;
+  transition: transform 120ms ease, stroke-width 120ms ease, filter 120ms ease;
+}
+
+.tabletop-piece--future-force .tabletop-piece-counter {
+  fill: #512c58;
+  stroke: #e4b5ef;
+}
+
+.tabletop-piece--present-day-coalition .tabletop-piece-counter {
+  fill: #36566f;
+  stroke: #bdd9ed;
+}
+
+.tabletop-piece:hover .tabletop-piece-counter,
+.tabletop-piece:focus-visible .tabletop-piece-counter,
+.tabletop-piece.is-selected .tabletop-piece-counter {
+  stroke: #f5e599;
+  stroke-width: 4;
+  filter: drop-shadow(0 0 8px rgba(245, 229, 153, 0.7));
+}
+
+.tabletop-piece-name,
+.tabletop-piece-composition,
+.tabletop-piece-strength {
+  fill: #fbfbf4;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: rgba(10, 14, 13, 0.7);
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+}
+
+.tabletop-piece-name {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+}
+
+.tabletop-piece-composition {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.tabletop-piece-strength {
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.legend-piece,
+.legend-destination {
+  display: inline-block;
+  width: 20px;
+  height: 14px;
+  border-radius: 3px;
+  border: 2px solid currentColor;
+}
+
+.legend-piece--future {
+  color: #e4b5ef;
+  background: #512c58;
+}
+
+.legend-piece--coalition {
+  color: #bdd9ed;
+  background: #36566f;
+}
+
+.legend-destination {
+  border-style: dashed;
+  border-color: #7fd8a6;
+  background: rgba(87, 174, 124, 0.13);
+}
+
+.tabletop-piece-traits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.tabletop-piece-traits span {
+  padding: 4px 7px;
+  border: 1px solid rgba(222, 232, 213, 0.15);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.045);
+  color: #dbe3d5;
+  font-size: 0.66rem;
+}
+
+@keyframes tabletop-destination-pulse {
+  0%, 100% { opacity: 0.58; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabletop-destination-ring {
+    animation: none;
+  }
+}

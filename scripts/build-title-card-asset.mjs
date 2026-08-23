@@ -18,6 +18,8 @@ const outputDirectory = path.join(
   'motion-comic-v3'
 );
 const outputPath = path.join(outputDirectory, 'title-card-future-conquest.webp');
+const publicOutputDirectory = path.join(repositoryRoot, 'public', 'generated', 'motion-comic-v3');
+const publicOutputPath = path.join(publicOutputDirectory, 'title-card-future-conquest.webp');
 
 const EXPECTED_PARTS = 7;
 const EXPECTED_LENGTH = 62_346;
@@ -55,7 +57,9 @@ if (bytes.length !== EXPECTED_LENGTH || !isWebP(bytes) || sha256 !== EXPECTED_SH
 }
 
 await mkdir(outputDirectory, { recursive: true });
+await mkdir(publicOutputDirectory, { recursive: true });
 await writeFile(outputPath, bytes);
+await writeFile(publicOutputPath, bytes);
 
 console.log(
   `Built title-card-future-conquest.webp from ${partFiles.length} verified source parts (${bytes.length} bytes).`

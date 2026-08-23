@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
-const OUT='public/miniatures/wp3-8e';
+const repositoryRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const OUT=path.join(repositoryRoot,'public/miniatures/wp3-8e');
 fs.mkdirSync(OUT,{recursive:true});
 
 function builder(materials){
@@ -32,7 +34,7 @@ function builder(materials){
   }
   function rod(k,a,b,r=.02,n=6){
     const g=G[k],base=g.p.length/3;let vx=b[0]-a[0],vy=b[1]-a[1],vz=b[2]-a[2];
-    const L=Math.hypot(vx,vy,vz);vx/=L;vy/=L;vz/=L;
+    const L=Math.hypot(vx,vy,vz);if(!Number.isFinite(L)||L<=1e-9)return;vx/=L;vy/=L;vz/=L;
     let ux=-vy,uy=vx,uz=0;if(Math.hypot(ux,uy,uz)<.01){ux=0;uy=-vz;uz=vy}
     const uL=Math.hypot(ux,uy,uz);ux/=uL;uy/=uL;uz/=uL;
     const wx=vy*uz-vz*uy,wy=vz*ux-vx*uz,wz=vx*uy-vy*ux;
@@ -42,7 +44,7 @@ function builder(materials){
   }
   function beam(k,a,b,width=.12,depth=.10){
     const g=G[k],base=g.p.length/3;
-    let vx=b[0]-a[0],vy=b[1]-a[1],vz=b[2]-a[2];const L=Math.hypot(vx,vy,vz);vx/=L;vy/=L;vz/=L;
+    let vx=b[0]-a[0],vy=b[1]-a[1],vz=b[2]-a[2];const L=Math.hypot(vx,vy,vz);if(!Number.isFinite(L)||L<=1e-9)return;vx/=L;vy/=L;vz/=L;
     let ux=-vy,uy=vx,uz=0;if(Math.hypot(ux,uy,uz)<.01){ux=1;uy=0;uz=0}
     const uL=Math.hypot(ux,uy,uz);ux/=uL;uy/=uL;uz/=uL;
     const wx=vy*uz-vz*uy,wy=vz*ux-vx*uz,wz=vx*uy-vy*ux;
@@ -65,15 +67,19 @@ function builder(materials){
   return {G,box,cyl,cone,sphere,rod,beam,prism,gableRoof};
 }
 
-function emit(filename,nodeName,materials,metallic,build){
+function emit(filename,nodeName,materials,metallic,minimumFaces,build){
   const B=builder(materials);build(B);const {G}=B;
+  const faces=Object.values(G).reduce((n,g)=>n+g.i.length/3,0);
+  if(!Number.isInteger(faces)||faces<minimumFaces)throw new Error(`${filename}: generated ${faces} faces; expected at least ${minimumFaces}`);
   const chunks=[],views=[],accessors=[],prims=[];let off=0;
   const align=()=>{while(off%4){chunks.push(Buffer.from([0]));off++}};
   for(const [k,g] of Object.entries(G)){
     if(!g.i.length)continue;align();
+    if(!g.p.length||g.p.length%3||g.i.length%3||g.i.some(index=>!Number.isInteger(index)||index<0||index>=g.p.length/3))throw new Error(`${filename}: ${k} has invalid indexed geometry`);
     const pb=Buffer.from(new Float32Array(g.p).buffer);const pv=views.push({buffer:0,byteOffset:off,byteLength:pb.length,target:34962})-1;chunks.push(pb);off+=pb.length;
     const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
     for(let j=0;j<g.p.length;j+=3)for(let q=0;q<3;q++){min[q]=Math.min(min[q],g.p[j+q]);max[q]=Math.max(max[q],g.p[j+q])}
+    if([...min,...max].some(value=>!Number.isFinite(value)))throw new Error(`${filename}: accessor POSITION has invalid min/max`);
     const pa=accessors.push({bufferView:pv,componentType:5126,count:g.p.length/3,type:'VEC3',min,max})-1;
     align();const ib=Buffer.from(new Uint32Array(g.i).buffer);const iv=views.push({buffer:0,byteOffset:off,byteLength:ib.length,target:34963})-1;chunks.push(ib);off+=ib.length;
     const ia=accessors.push({bufferView:iv,componentType:5125,count:g.i.length,type:'SCALAR'})-1;
@@ -82,7 +88,7 @@ function emit(filename,nodeName,materials,metallic,build){
   const bin=Buffer.concat(chunks);
   const doc={asset:{version:'2.0',generator:'Future Conquest WP3.8E authored geometry builder'},scene:0,scenes:[{nodes:[0]}],nodes:[{mesh:0,name:nodeName}],meshes:[{name:nodeName,primitives:prims}],materials:Object.entries(materials).map(([name,v])=>({name,pbrMetallicRoughness:{baseColorFactor:v,metallicFactor:metallic.includes(name)?.58:name.includes('gold')?.35:0,roughnessFactor:metallic.includes(name)?.34:.80}})),accessors,bufferViews:views,buffers:[{byteLength:bin.length,uri:`data:application/octet-stream;base64,${bin.toString('base64')}`}]};
   const text=JSON.stringify(doc),out=path.join(OUT,filename);fs.writeFileSync(out,text);
-  return {name:filename.replace('.gltf',''),path:`/miniatures/wp3-8e/${filename}`,bytes:Buffer.byteLength(text),sha256:createHash('sha256').update(text).digest('hex'),meshes:1,materials:prims.length,faces:Object.values(G).reduce((n,g)=>n+g.i.length/3,0)};
+  return {name:filename.replace('.gltf',''),path:`/miniatures/wp3-8e/${filename}`,bytes:Buffer.byteLength(text),sha256:createHash('sha256').update(text).digest('hex'),meshes:1,materials:prims.length,faces};
 }
 
 function premiumBase(B){
@@ -152,9 +158,9 @@ function innsbruck(B){
 }
 
 const assets=[
-  emit('namur-selected.gltf','Namur landmark miniature',namurMaterials,['dome'],namur),
-  emit('chur-selected.gltf','Chur landmark miniature',churMaterials,['copper'],chur),
-  emit('innsbruck-selected.gltf','Innsbruck landmark miniature',innsbruckMaterials,['glass','steel'],innsbruck)
+  emit('namur-selected.gltf','Namur landmark miniature',namurMaterials,['dome'],1250,namur),
+  emit('chur-selected.gltf','Chur landmark miniature',churMaterials,['copper'],1150,chur),
+  emit('innsbruck-selected.gltf','Innsbruck landmark miniature',innsbruckMaterials,['glass','steel'],1200,innsbruck)
 ];
 fs.writeFileSync(path.join(OUT,'manifest.json'),`${JSON.stringify({schemaVersion:1,pass:'WP3.8E',assets},null,2)}\n`);
 for(const a of assets)console.log(`Built ${a.name} (${a.bytes} bytes, ${a.faces} faces, ${a.materials} material groups)`);

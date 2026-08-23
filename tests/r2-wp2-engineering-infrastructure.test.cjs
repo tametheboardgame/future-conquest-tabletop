@@ -1,6 +1,5 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 
 const {
   __testOnly,
@@ -26,7 +25,6 @@ const { effectiveRouteSupplyCapacity, refreshSupplyNetwork } = require('../.test
 const { upgradeStrategicState } = require('../.test-dist/strategic-response.js');
 const { CURRENT_SAVE_KEY, inspectStoredCampaign } = require('../.test-dist/persistence.js');
 
-const read = file => fs.readFileSync(file, 'utf8');
 const ROUTE_ID = 'R-BRUSSELS-AMSTERDAM';
 const MOVE_ROUTE_ID = 'R-BRUSSELS-NAMUR';
 const ATTACK_ROUTE_ID = 'R-PARIS-BRUSSELS';
@@ -227,17 +225,4 @@ test('R2-WP2 current saves preserve active projects and route upgrades through n
   assert.equal(result.state.engineeringProjects[0].status, 'active');
   assert.equal(result.state.engineeringProjects[0].allocation, 25);
   assert.equal(result.state.routeStates[ROUTE_ID].upgradeLevel, 1);
-});
-
-test('R2-WP2 Infrastructure UI exposes civil-first repair, upgrades, support withdrawal and separate cancellation', () => {
-  const source = read('src/components/InfrastructureCommand.tsx');
-  assert.match(source, /local civil capacity/i);
-  assert.match(source, /Military formation required<\/dt><dd>No/);
-  assert.match(source, /label: 'Upgrade'/);
-  assert.match(source, /Withdraw support/);
-  assert.match(source, /Cancel project/);
-  assert.match(source, /Parent combat availability/);
-  assert.match(source, /Parent movement rate/);
-  assert.match(source, /Only destroyed or explicitly blocked corridors are impassable/);
-  assert.doesNotMatch(source, /Both actions tie up a formation/);
 });

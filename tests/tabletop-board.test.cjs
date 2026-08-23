@@ -5,6 +5,10 @@ const {
   adjacentRegionIds,
   validateTabletopBoard
 } = require('../.tabletop-test-dist/board.js');
+const {
+  CENTRAL_FRONT_PROTOTYPE_FORCE,
+  validatePrototypeForce
+} = require('../.tabletop-test-dist/pieces.js');
 
 test('prototype board stays within the intended tabletop scale', () => {
   assert.equal(CENTRAL_FRONT_BOARD.regions.length, 18);
@@ -66,4 +70,40 @@ test('validator rejects duplicate links and malformed references', () => {
     connection.a !== 'london' && connection.b !== 'london'
   ));
   assert.match(validateTabletopBoard(isolated).join('\n'), /Isolated region: london/);
+});
+
+test('prototype force has valid asymmetric starting formations', () => {
+  assert.deepEqual(validatePrototypeForce(CENTRAL_FRONT_BOARD, CENTRAL_FRONT_PROTOTYPE_FORCE), []);
+
+  const future = CENTRAL_FRONT_PROTOTYPE_FORCE.pieces.filter((piece) => piece.factionId === 'future-force');
+  const coalition = CENTRAL_FRONT_PROTOTYPE_FORCE.pieces.filter((piece) => piece.factionId === 'present-day-coalition');
+  assert.equal(future.length, 8);
+  assert.equal(coalition.length, 12);
+});
+
+test('every starting formation has a unique identity, valid definition and board position', () => {
+  const boardRegions = new Set(CENTRAL_FRONT_BOARD.regions.map((region) => region.id));
+  const ids = new Set();
+
+  for (const piece of CENTRAL_FRONT_PROTOTYPE_FORCE.pieces) {
+    assert.equal(ids.has(piece.id), false, `duplicate piece id ${piece.id}`);
+    ids.add(piece.id);
+    const definition = CENTRAL_FRONT_PROTOTYPE_FORCE.definitions[piece.definitionId];
+    assert.ok(definition, `${piece.id} should have a definition`);
+    assert.equal(definition.factionId, piece.factionId);
+    assert.equal(boardRegions.has(piece.regionId), true, `${piece.id} should start on the board`);
+  }
+});
+
+test('starting deployment exercises multiple regions and stacked-piece presentation', () => {
+  for (const factionId of ['future-force', 'present-day-coalition']) {
+    const factionPieces = CENTRAL_FRONT_PROTOTYPE_FORCE.pieces.filter((piece) => piece.factionId === factionId);
+    assert.ok(new Set(factionPieces.map((piece) => piece.regionId)).size >= 2);
+  }
+
+  const occupancy = new Map();
+  for (const piece of CENTRAL_FRONT_PROTOTYPE_FORCE.pieces) {
+    occupancy.set(piece.regionId, (occupancy.get(piece.regionId) ?? 0) + 1);
+  }
+  assert.ok([...occupancy.values()].some((count) => count >= 2));
 });
