@@ -594,7 +594,11 @@ export function TerrainMapPrototypeImpl({
         __r3TerritoryCentres: terrainOperationalTerritoryCentres
       });
       const diagnosticWindow = window as typeof window & { __r3TerrainDiagnostics?: Record<string, unknown> };
-      const sceneMode = new URLSearchParams(window.location.search).get('r5Scene') ?? 'full';
+      const requestedSceneMode = new URLSearchParams(window.location.search).get('r5Scene');
+      const diagnosticSceneIsolation = (window as typeof window & { __r5DiagnosticSceneIsolation?: boolean }).__r5DiagnosticSceneIsolation === true;
+      const sceneMode = diagnosticSceneIsolation && ['none', 'world', 'formations', 'full'].includes(requestedSceneMode ?? '')
+        ? requestedSceneMode as 'none' | 'world' | 'formations' | 'full'
+        : 'full';
       const diagnostics = diagnosticWindow.__r3TerrainDiagnostics = {
         sceneMode,
         mapConstructCount: Number(diagnosticWindow.__r3TerrainDiagnostics?.mapConstructCount ?? 0) + 1,
@@ -703,7 +707,7 @@ export function TerrainMapPrototypeImpl({
       });
 
       diagnosticTimers = [1_000, 5_000, 10_000, 20_000].map(delay => window.setTimeout(() => {
-        if (disposed || loadedRef.current) return;
+        if (disposed) return;
         const sourceIds = [
           'r3-wp2b-land',
           'r3-wp2b-terrain-dem',
