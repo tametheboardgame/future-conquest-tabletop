@@ -658,8 +658,9 @@ export function TerrainMapPrototypeImpl({
       });
       const diagnosticWindow = window as typeof window & { __r3TerrainDiagnostics?: Record<string, unknown> };
       const query = new URLSearchParams(window.location.search);
-      const diagnosticMode = query.get('r5Diagnostic') === '1';
-      const requestedSceneMode = query.get('r5Scene');
+      const hardwareMode = query.get('r5HardwareDiag');
+      const diagnosticMode = query.get('r5Diagnostic') === '1' || hardwareMode !== null;
+      const requestedSceneMode = hardwareMode?.replace('terrain-', '') ?? query.get('r5Scene');
       const diagnosticSceneModes = ['none', 'world', 'formations', 'full'] as const;
       const sceneMode = diagnosticMode
         && diagnosticSceneModes.some(mode => mode === requestedSceneMode)

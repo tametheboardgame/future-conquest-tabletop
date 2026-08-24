@@ -12,6 +12,7 @@ const startup = readFileSync('src/tabletop/R5StartupExperience.tsx', 'utf8');
 const terrain = readFileSync('src/components/TerrainMapPrototypeImpl.tsx', 'utf8');
 const loader = readFileSync('src/presentation/r3-terrain-loader.ts', 'utf8');
 const css = readFileSync('src/tabletop/r3-tabletop-shell.css', 'utf8');
+const hardwareDiagnostic = readFileSync('src/tabletop/r5-hardware-diagnostic.ts', 'utf8');
 
 test('production mounts the restored R3 shell instead of either abstract board', () => {
   assert.match(app, /import \{ R3TabletopShell \}/);
@@ -43,6 +44,19 @@ test('known-good terrain lifecycle is mounted and prewarmed behind the launcher'
   assert.doesNotMatch(backdrop, /R5_GAME_REVEALED_EVENT|requestAnimationFrame|setTimeout/);
   assert.doesNotMatch(backdrop, /createElement\('canvas'\)|getContext\('webgl'\)|WEBGL_lose_context/);
   assert.match(loader, /import\('\.\.\/components\/TerrainMapPrototype'\)/);
+});
+
+test('real-hardware differential is explicit and keeps light modes free of rich runtimes', () => {
+  assert.match(hardwareDiagnostic, /r5HardwareDiag/);
+  assert.match(hardwareDiagnostic, /'shell', 'stable', 'terrain-none', 'terrain-world', 'terrain-formations', 'full'/);
+  assert.match(hardwareDiagnostic, /: 'production'/);
+  assert.match(app, /readR5HardwareDiagnosticMode/);
+  assert.match(backdrop, /diagnosticMode === 'shell' \? null : buildR5RichMapPresentation/);
+  assert.match(backdrop, /diagnosticMode !== 'shell' && props\.diagnosticMode !== 'stable'/);
+  assert.match(backdrop, /diagnosticMode === 'stable'/);
+  assert.match(startup, /LAUNCHED \/ RESPONSIVE/);
+  assert.match(startup, /aria-hidden=\{!launched\}/);
+  assert.doesNotMatch(startup, /R5_GAME_REVEALED_EVENT|r5:game-revealed/);
 });
 
 test('renderer files retain known-good production ownership and startup', () => {

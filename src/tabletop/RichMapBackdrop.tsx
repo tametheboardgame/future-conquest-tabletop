@@ -4,6 +4,7 @@ import type { TabletopBoardDefinition } from './board';
 import type { TabletopPrototypeForce } from './pieces';
 import type { TabletopGameState } from './state';
 import { buildR5RichMapPresentation } from './rich-map-adapter';
+import type { R5MapDiagnosticMode } from './r5-hardware-diagnostic';
 
 interface Props {
   board: TabletopBoardDefinition;
@@ -13,6 +14,7 @@ interface Props {
   selectedRegionId: string | null;
   onSelectPiece: (pieceId: string) => void;
   onSelectRegion: (regionId: string) => void;
+  diagnosticMode?: R5MapDiagnosticMode;
 }
 
 const LazyTerrainMap = lazy(() => loadTerrainMapModule().then(module => ({ default: module.TerrainMapPrototype })));
@@ -23,13 +25,15 @@ const LazyStableMap = lazy(async () => {
 
 export function RichMapBackdrop(props: Props) {
   const [available, setAvailable] = useState(true);
-  const scene = useMemo(() => buildR5RichMapPresentation(
+  const scene = useMemo(() => props.diagnosticMode === 'shell' ? null : buildR5RichMapPresentation(
     props.board, props.force, props.game, props.selectedPieceId, props.selectedRegionId
-  ), [props.board, props.force, props.game, props.selectedPieceId, props.selectedRegionId]);
+  ), [props.board, props.force, props.game, props.selectedPieceId, props.selectedRegionId, props.diagnosticMode]);
   useEffect(() => {
-    prewarmTerrainMapModule();
-  }, []);
-  if (!available) return <div className="r5-rich-map-fallback" aria-label="Terrain renderer unavailable">
+    if (props.diagnosticMode !== 'shell' && props.diagnosticMode !== 'stable') prewarmTerrainMapModule();
+  }, [props.diagnosticMode]);
+  if (props.diagnosticMode === 'shell') return <div className="r5-hardware-map-placeholder" aria-label="Diagnostic map placeholder"><strong>MAP RUNTIME DISABLED</strong><span>Shell transition diagnostic</span></div>;
+  if (!scene) return null;
+  if (!available || props.diagnosticMode === 'stable') return <div className="r5-rich-map-fallback" aria-label="Stable non-WebGL command map">
     <Suspense fallback={<div role="status">Loading stable command map…</div>}><LazyStableMap
       state={scene.legacyState}
       onSelect={territoryId => {
