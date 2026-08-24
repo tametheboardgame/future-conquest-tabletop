@@ -111,6 +111,11 @@ test('CI diagnostics isolate custom layers without weakening the full-scene gate
   assert.match(terrain, /sourceCacheHistory/);
   assert.match(terrain, /campaign-fronts first reload diagnostic/);
   assert.match(terrain, /firstCampaignFrontsReload/);
+  assert.match(terrain, /firstReloadAwaitingLoadedObservation/);
+  assert.match(terrain, /firstPostReloadLoaded/);
+  assert.match(terrain, /wallClock: new Date\(\)\.toISOString\(\)/);
+  assert.match(terrain, /camera: cameraDiagnosticSnapshot\(map\)/);
+  assert.match(terrain, /sourceState: state/);
   assert.match(terrain, /toolbarLifecycle/);
   assert.match(terrain, /map-load-react-status-transition/);
 });

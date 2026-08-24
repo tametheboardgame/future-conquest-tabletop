@@ -835,6 +835,7 @@ export function TerrainMapPrototypeImpl({
         });
       };
       let campaignFrontsWasLoaded = false;
+      let firstReloadAwaitingLoadedObservation = false;
       const inspectCampaignFronts = (reason: string) => {
         const state = campaignFrontsState();
         const loaded = state.length > 0 && state.every(cache => cache.loaded === true);
@@ -850,16 +851,28 @@ export function TerrainMapPrototypeImpl({
             sourceCacheHistory: [...diagnostics.sourceCacheHistory as TerrainDiagnosticRecord[]],
             toolbarLifecycle: [...diagnostics.toolbarLifecycle as TerrainDiagnosticRecord[]]
           };
+          firstReloadAwaitingLoadedObservation = true;
           console.info('R3 campaign-fronts first reload diagnostic', JSON.stringify(diagnostics.firstCampaignFrontsReload));
         }
         const firstReload = diagnostics.firstCampaignFrontsReload as TerrainDiagnosticRecord | null;
-        if (firstReload && loaded && firstReload.settledAt === undefined) {
-          const settledAt = Math.round(performance.now());
-          firstReload.settledAt = settledAt;
-          firstReload.resettleDurationMs = settledAt - Number(firstReload.at);
-          firstReload.settledReason = reason;
-          firstReload.settledCamera = cameraDiagnosticSnapshot(map);
-          firstReload.settledSourceState = state;
+        if (firstReload && firstReloadAwaitingLoadedObservation && loaded) {
+          // Capture this observation synchronously: a later render/poll can have a
+          // different camera or cache state and would only give a coarse bound.
+          const loadedAt = performance.now();
+          const firstPostReloadLoaded = {
+            at: loadedAt,
+            wallClock: new Date().toISOString(),
+            reason,
+            camera: cameraDiagnosticSnapshot(map),
+            sourceState: state
+          };
+          firstReloadAwaitingLoadedObservation = false;
+          firstReload.firstPostReloadLoaded = firstPostReloadLoaded;
+          firstReload.settledAt = loadedAt;
+          firstReload.resettleDurationMs = loadedAt - Number(firstReload.at);
+          firstReload.settledReason = firstPostReloadLoaded.reason;
+          firstReload.settledCamera = firstPostReloadLoaded.camera;
+          firstReload.settledSourceState = firstPostReloadLoaded.sourceState;
           console.info('R3 campaign-fronts first reload settled', JSON.stringify(firstReload));
         }
         campaignFrontsWasLoaded ||= loaded;
