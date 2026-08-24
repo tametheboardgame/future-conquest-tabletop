@@ -44,7 +44,12 @@ interface StrategicPreferences {
   resource: R3ResourceMetric;
 }
 
-type TerrainWindow = typeof window & { __r3TerrainMap?: Map };
+type TerrainWindow = typeof window & {
+  __r3TerrainMap?: Map;
+  __r3TerrainSourceUpdates?: { effectRuns: number; setDataCalls: number; skippedIdenticalCalls: number; taskGroupCount: number };
+};
+
+const sourceSnapshotBySource = new WeakMap<GeoJSONSource, string>();
 
 function browserTerrainProfile(): TerrainPresentationProfile {
   if (typeof window === 'undefined') return 'full';
@@ -99,6 +104,10 @@ export function TerrainMapPrototype(props: TerrainMapPrototypeProps) {
 
   useEffect(() => {
     if (profile === 'svg-fallback') return;
+    const terrainWindow = window as TerrainWindow;
+    const sourceUpdates = terrainWindow.__r3TerrainSourceUpdates ??= { effectRuns: 0, setDataCalls: 0, skippedIdenticalCalls: 0, taskGroupCount: 0 };
+    sourceUpdates.effectRuns += 1;
+    sourceUpdates.taskGroupCount = Object.keys(state.taskGroups).length;
     let frame = 0;
     let disposed = false;
     let dataSynchronised = false;
@@ -140,9 +149,20 @@ export function TerrainMapPrototype(props: TerrainMapPrototypeProps) {
         // Source data can settle independently of DEM/WebGL tile readiness. Send
         // each authoritative snapshot once; repeatedly calling setData while the
         // style is settling would keep GeoJSON workers perpetually invalidated.
-        territorySource.setData(strategicData);
-        routeSource.setData(strategicRouteData);
-        nodeSource.setData(strategicNodeData);
+        for (const [source, data] of [
+          [territorySource, strategicData],
+          [routeSource, strategicRouteData],
+          [nodeSource, strategicNodeData]
+        ] as const) {
+          const snapshot = JSON.stringify(data);
+          if (sourceSnapshotBySource.get(source) === snapshot) {
+            sourceUpdates.skippedIdenticalCalls += 1;
+          } else {
+            source.setData(data);
+            sourceSnapshotBySource.set(source, snapshot);
+            sourceUpdates.setDataCalls += 1;
+          }
+        }
         dataSynchronised = true;
       }
 

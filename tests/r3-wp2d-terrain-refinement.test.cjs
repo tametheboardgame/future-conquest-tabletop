@@ -63,12 +63,15 @@ test('WP2D terrain HUD owns the upper stacking plane above operational markers',
   assert.ok(toolbarZ > Math.max(...operationalZ), `toolbar z-index ${toolbarZ} must exceed operational marker maximum ${Math.max(...operationalZ)}`);
 });
 
-test('WP2D camera presets use dynamic toolbar safe padding and respond to toolbar resizing', () => {
+test('WP2D camera presets use idempotent dynamic toolbar safe padding and explain resize requests', () => {
   assert.match(renderer, /function terrainViewportPadding\(/);
   assert.match(renderer, /toolbar\?\.getBoundingClientRect\(\)\.height/);
-  assert.match(renderer, /map\.setPadding\(terrainViewportPadding\(toolbarRef\.current, presentationProfile\)\)/);
-  assert.match(renderer, /new ResizeObserver\(applySafePadding\)/);
-  assert.match(renderer, /padding: terrainViewportPadding\(toolbarRef\.current, presentationProfile\)/);
+  assert.match(renderer, /if \(!changed\)[\s\S]*paddingSkippedCount[\s\S]*return;/);
+  assert.match(renderer, /map\.setPadding\(padding\)/);
+  assert.match(renderer, /new ResizeObserver\(\(\) => applySafePadding\('toolbar-resize-observer'\)\)/);
+  assert.match(renderer, /applySafePadding\('initial'\)/);
+  assert.match(renderer, /paddingHistory\.push\(\{[\s\S]*reason,[\s\S]*changed,[\s\S]*toolbar:[\s\S]*container:/);
+  assert.match(renderer, /lastCameraMutation = \{[\s\S]*reason: `camera-preset:\$\{preset\.id\}`/);
   assert.match(renderer, /ref=\{toolbarRef\}/);
 });
 

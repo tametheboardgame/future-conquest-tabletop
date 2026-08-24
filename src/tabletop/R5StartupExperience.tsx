@@ -3,6 +3,7 @@ import { audioManager } from '../audio/audio-manager';
 import { loadGlobalSettings, saveGlobalSettings, type GlobalSettings } from '../game/global-settings';
 import { BUILD_LABEL } from '../generated/build-info';
 import { GlobalSettingsPanel } from '../components/GlobalSettingsPanel';
+import { GlobalSettingsContext } from '../components/StartupExperience';
 import { R5_GAME_REVEALED_EVENT } from './launch-transition';
 import '../components/startup-launcher.css';
 
@@ -40,7 +41,7 @@ export function R5StartupExperience({ children }: { children: ReactNode }) {
 
   return <>
     <div className={`startup-game-shell ${launched ? '' : 'launcher-covered'}`}>
-      {children}
+      <GlobalSettingsContext.Provider value={settings}>{children}</GlobalSettingsContext.Provider>
     </div>
     {!launched && <section className="startup-launcher" aria-label="Future Conquest title screen">
       <div className="startup-launcher-panel">

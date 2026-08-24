@@ -27,7 +27,8 @@ test('WP2E removes the invisible colour-relief DEM path but keeps mesh and hills
   assert.doesNotMatch(renderer, /r3-wp2b-relief-dem/);
   assert.doesNotMatch(renderer, /type: 'color-relief'/);
   assert.match(renderer, /'r3-wp2b-terrain-dem': demSource/);
-  assert.match(renderer, /'r3-wp2b-hillshade-dem': \{ \.\.\.demSource \}/);
+  assert.doesNotMatch(renderer, /'r3-wp2b-hillshade-dem':/);
+  assert.match(renderer, /id: 'r3-wp2b-hillshade'[\s\S]*?source: 'r3-wp2b-terrain-dem'/);
 });
 
 test('roadmap records completed terrain work and the recovery gate before WP4', () => {

@@ -10,6 +10,7 @@ const adapter = readFileSync('src/presentation/r5-rich-map-adapter.ts', 'utf8');
 const projection = readFileSync('src/tabletop/rich-map-adapter.ts', 'utf8');
 const startup = readFileSync('src/tabletop/R5StartupExperience.tsx', 'utf8');
 const terrain = readFileSync('src/components/TerrainMapPrototypeImpl.tsx', 'utf8');
+const loader = readFileSync('src/presentation/r3-terrain-loader.ts', 'utf8');
 const css = readFileSync('src/tabletop/r3-tabletop-shell.css', 'utf8');
 
 test('production mounts the restored R3 shell instead of either abstract board', () => {
@@ -18,7 +19,7 @@ test('production mounts the restored R3 shell instead of either abstract board',
   assert.doesNotMatch(app, /<TabletopBoard|<RichMapShell/);
   assert.match(shell, /data-presentation="r3-wp6\.6-shell"/);
   assert.match(shell, /<RichMapBackdrop/);
-  assert.match(backdrop, /TerrainMapPrototypeImpl/);
+  assert.match(backdrop, /loadTerrainMapModule/);
   assert.doesNotMatch(shell, /tabletop-board-svg|rich-map-board|<svg/);
   assert.match(css, /r3-command-rail/);
   assert.match(css, /r3-map-host/);
@@ -33,25 +34,24 @@ test('historical startup, title and audio host remains the production entry', ()
   assert.doesNotMatch(startup, /GameState|dispatchCoreAction|newGame/);
 });
 
-test('launch reveal avoids a whole-renderer inert transition and reflows the persistent map', () => {
-  assert.doesNotMatch(startup, /inert=|aria-hidden=\{!launched\}/);
-  assert.match(startup, /requestAnimationFrame/);
-  assert.match(startup, /dispatchEvent\(new Event\(R5_GAME_REVEALED_EVENT\)\)/);
-  assert.match(terrain, /addEventListener\(R5_GAME_REVEALED_EVENT, resizeAfterReveal\)/);
-  assert.match(terrain, /mapRef\.current\?\.resize\(\)/);
-  assert.match(terrain, /mapRef\.current\?\.triggerRepaint\(\)/);
+test('known-good terrain lifecycle is mounted and prewarmed behind the launcher', () => {
   assert.doesNotMatch(startup, /launched\s*\?\s*children/);
+  assert.match(startup, /launcher-covered/);
+  assert.match(backdrop, /prewarmTerrainMapModule\(\)/);
+  assert.match(backdrop, /loadTerrainMapModule/);
+  assert.match(backdrop, /LazyTerrainMap/);
+  assert.doesNotMatch(backdrop, /R5_GAME_REVEALED_EVENT|requestAnimationFrame|setTimeout/);
+  assert.doesNotMatch(backdrop, /createElement\('canvas'\)|getContext\('webgl'\)|WEBGL_lose_context/);
+  assert.match(loader, /import\('\.\.\/components\/TerrainMapPrototype'\)/);
 });
 
-test('BG0 stages the optional WebGL runtime behind launch and retains a stable map fallback', () => {
-  assert.doesNotMatch(backdrop, /^import \{ TerrainMapPrototypeImpl \}/m);
-  assert.match(backdrop, /lazy\(async \(\) =>/);
-  assert.match(backdrop, /import\('\.\.\/components\/TerrainMapPrototypeImpl'\)/);
-  assert.match(backdrop, /R5_GAME_REVEALED_EVENT/);
-  assert.match(backdrop, /requestAnimationFrame/);
-  assert.match(backdrop, /LazyStableMap/);
-  assert.match(terrain, /readiness diagnostic/);
-  assert.match(terrain, /did not settle promptly/);
+test('renderer files retain known-good production ownership and startup', () => {
+  const formations = readFileSync('src/presentation/r3-formation-miniatures-layer.ts', 'utf8');
+  const world = readFileSync('src/presentation/r3-world-miniatures-layer.ts', 'utf8');
+  assert.match(terrain, /Promise\.all\(\[\s*import\('\.\.\/presentation\/r3-formation-miniatures-layer'/);
+  assert.doesNotMatch(terrain, /r5-rich-runtime|R5_GAME_REVEALED_EVENT|armRichStage/);
+  assert.doesNotMatch(formations, /r3-shared-three-renderer/);
+  assert.doesNotMatch(world, /r3-shared-three-renderer/);
 });
 
 test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer and map interaction', () => {
@@ -59,8 +59,12 @@ test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer a
   const probe = readFileSync('scripts/probe-r5-bg0-runtime.mjs', 'utf8');
   assert.match(workflow, /Checkout exact PR head/);
   assert.match(workflow, /probe-r5-bg0-runtime\.mjs/);
+  assert.doesNotMatch(workflow, /R5_CHROMIUM_SOFTWARE_WEBGL/);
+  assert.match(probe, /chromium\.launch\(\{ headless: true \}\)/);
+  assert.doesNotMatch(probe, /swiftshader|enable-unsafe-swiftshader|control\.click/);
   assert.match(probe, /BEGIN CAMPAIGN/);
   assert.match(probe, /main-thread heartbeat/);
+  assert.match(probe, /setTimeout\(\(\) => resolve\(performance\.now\(\)\), 0\)/);
   assert.match(probe, /\.r3-tabletop-shell/);
   assert.match(probe, /\.r3-tray-toggle/);
   assert.match(probe, /Duplicate terrain runtime/);
@@ -71,34 +75,64 @@ test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer a
   assert.match(probe, /webglcontextlost/);
   assert.match(probe, /animationFrames/);
   assert.match(probe, /runtimeEvidence/);
+  assert.match(probe, /terrainStatus !== 'ready'/);
+  assert.match(probe, /physicalFormations !== 'ready'/);
+  assert.match(probe, /MapLibre did not completely settle/);
+  assert.match(probe, /canvasGeometry/);
+  assert.match(probe, /formationElevationAttempts/);
+  assert.match(probe, /sourceUpdates/);
+  assert.match(probe, /R5 periodic readiness/);
+  assert.match(probe, /R5_DIAGNOSTIC_SCENE_MODE/);
   assert.match(probe, /screenshot/);
 });
 
-test('rich layers stage independently and cache unsuccessful terrain readbacks', () => {
-  const formations = readFileSync('src/presentation/r3-formation-miniatures-layer.ts', 'utf8');
-  const world = readFileSync('src/presentation/r3-world-miniatures-layer.ts', 'utf8');
-  assert.match(terrain, /setTimeout\(startTerrain, runtimeOptions\.forced \? 100 : 2_000\)/);
-  assert.doesNotMatch(terrain, /Promise\.all\(\[\s*import\('\.\.\/presentation\/r3-formation-miniatures-layer'/);
-  assert.match(terrain, /webglcontextlost/);
-  assert.match(formations, /piece\.elevationAt = \[\.\.\.lngLat\]/);
-  assert.match(world, /piece\.elevationSampled = true/);
-  assert.match(formations, /elevationSampleBudget = 1/);
-  assert.match(world, /elevationSampleBudget = 1/);
-  assert.match(world, /this\.assetLoading/);
+test('CI diagnostics isolate custom layers without weakening the full-scene gate', () => {
+  const workflow = readFileSync('.github/workflows/r5-bg0-browser-runtime.yml', 'utf8');
+  const probe = readFileSync('scripts/probe-r5-bg0-runtime.mjs', 'utf8');
+  assert.match(workflow, /none world formations full/);
+  assert.match(workflow, /if: failure\(\)/);
+  assert.match(probe, /r5Scene/);
+  assert.match(probe, /r5Diagnostic/);
+  assert.match(terrain, /query\.get\('r5Diagnostic'\) === '1'/);
+  assert.match(terrain, /: 'full'/);
+  assert.match(terrain, /sceneMode === 'world' \|\| sceneMode === 'full'/);
+  assert.match(terrain, /sceneMode === 'formations' \|\| sceneMode === 'full'/);
+  assert.match(terrain, /triggerRepaintCount/);
+  assert.match(terrain, /dirtyFlags/);
+  assert.match(terrain, /paddingRequestCount/);
+  assert.match(terrain, /paddingSkippedCount/);
+  assert.match(terrain, /paddingHistory/);
+  assert.match(terrain, /if \(!changed\)[\s\S]*return;[\s\S]*map\.setPadding\(padding\)/);
+  assert.match(terrain, /applySafePadding\('initial'\)/);
+  assert.match(terrain, /applySafePadding\('toolbar-resize-observer'\)/);
+  assert.match(terrain, /cameraMutationHistory/);
+  assert.match(terrain, /'jumpTo', 'easeTo', 'flyTo', 'setCenter', 'setZoom', 'setPitch'/);
+  assert.match(terrain, /transformEventHistory/);
+  assert.match(terrain, /sourceCacheHistory/);
+  assert.match(terrain, /campaign-fronts first reload diagnostic/);
+  assert.match(terrain, /firstCampaignFrontsReload/);
+  assert.match(terrain, /firstReloadAwaitingLoadedObservation/);
+  assert.match(terrain, /firstPostReloadLoaded/);
+  assert.match(terrain, /wallClock: new Date\(\)\.toISOString\(\)/);
+  assert.match(terrain, /camera: cameraDiagnosticSnapshot\(map\)/);
+  assert.match(terrain, /sourceState: state/);
+  assert.match(terrain, /toolbarLifecycle/);
+  assert.match(terrain, /map-load-react-status-transition/);
 });
 
-test('hardware-rich stages expose a persistent circuit breaker and forced acceptance path', () => {
-  const runtime = readFileSync('src/presentation/r5-rich-runtime.ts', 'utf8');
-  const probe = readFileSync('scripts/probe-r5-bg0-runtime.mjs', 'utf8');
-  assert.match(runtime, /r5-rich-pending-stage/);
-  assert.match(runtime, /sessionStorage\.setItem/);
-  assert.match(terrain, /armRichStage\('terrain'\)/);
-  assert.match(terrain, /armRichStage\('world'\)/);
-  assert.match(terrain, /armRichStage\('formations'\)/);
-  assert.match(terrain, /r5-rich-diagnostic/);
-  assert.match(probe, /60_000/);
-  assert.match(probe, /r5RichPath.*force/);
-  assert.match(probe, /Rich stage/);
+test('terrain elevation readbacks are bounded and null retries are cached', () => {
+  const formations = readFileSync('src/presentation/r3-formation-miniatures-layer.ts', 'utf8');
+  const world = readFileSync('src/presentation/r3-world-miniatures-layer.ts', 'utf8');
+  for (const layer of [formations, world]) {
+    assert.match(layer, /ELEVATION_SAMPLES_PER_FRAME/);
+    assert.match(layer, /ELEVATION_NULL_RETRY_MS/);
+    assert.match(layer, /ELEVATION_SAMPLE_INTERVAL_MS/);
+    assert.match(layer, /elevationBudget > 0/);
+    assert.match(layer, /terrainReady/);
+    assert.match(layer, /nextElevationAttemptAt/);
+    assert.match(layer, /elevationSampleAttempts/);
+    assert.match(layer, /elevationNullSamples/);
+  }
 });
 
 test('adapter projects stable renderer ids from R5 authority and legal actions', () => {

@@ -22,7 +22,7 @@ interface StartupPresentationState {
   portalArrivalActive: boolean;
 }
 
-const GlobalSettingsContext = createContext<GlobalSettings | null>(null);
+export const GlobalSettingsContext = createContext<GlobalSettings | null>(null);
 const StartupPresentationContext = createContext<StartupPresentationState | null>(null);
 
 export function useLiveGlobalSettings(): GlobalSettings {

@@ -13,10 +13,12 @@ import {
   type LandmarkMiniatureCityVariant
 } from './r3-landmark-miniature-assets';
 import type { TerrainOperationalLayers } from './r3-terrain-operational-markers-core';
-import { acquireR3ThreeRenderer, releaseR3ThreeRenderer } from './r3-shared-three-renderer';
 
 export const R3_WORLD_MINIATURE_LAYER_ID = 'r3-wp3-5-world-miniatures';
 const CLEARANCE_METRES = 22;
+const ELEVATION_SAMPLES_PER_FRAME = 1;
+const ELEVATION_SAMPLE_INTERVAL_MS = 250;
+const ELEVATION_NULL_RETRY_MS = 2_000;
 
 type WorldLod = 'theatre' | 'campaign' | 'selected';
 type WorldKind = 'city' | 'port' | 'airport' | 'rail-hub' | 'logistics' | 'crossing';
@@ -29,7 +31,7 @@ type WorldPiece = {
   fallbackRoot: Group;
   kind: WorldKind;
   elevation?: number;
-  elevationSampled?: boolean;
+  nextElevationAttemptAt?: number;
   cityVariant?: 'generic' | LandmarkMiniatureCityVariant;
   landmarks?: readonly string[];
   asset?: LandmarkMiniatureAssetDefinition;
@@ -40,6 +42,8 @@ type WorldPiece = {
 export type WorldMiniatureEvidence = {
   layerId: string;
   renderCount: number;
+  elevationSampleAttempts: number;
+  elevationNullSamples: number;
   lod: WorldLod;
   objects: Array<{
     id: string;
@@ -183,14 +187,14 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
   readonly renderingMode = '3d' as const;
   private map?: Map;
   private renderer?: WebGLRenderer;
-  private context?: WebGL2RenderingContext;
   private readonly camera = new Camera();
   private readonly scene = new Scene();
   private readonly pieces: WorldPiece[];
   private layers: TerrainOperationalLayers;
   private renderCount = 0;
+  private elevationSampleAttempts = 0;
+  private elevationNullSamples = 0;
   private disposed = false;
-  private assetLoading = false;
 
   constructor(layers: TerrainOperationalLayers) {
     this.layers = layers;
@@ -214,8 +218,8 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
   onAdd(map: Map, gl: WebGL2RenderingContext) {
     this.disposed = false;
     this.map = map;
-    this.context = gl;
-    this.renderer = acquireR3ThreeRenderer(map.getCanvas(), gl, this.id);
+    this.renderer = new WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true });
+    this.renderer.autoClear = false;
     this.scene.add(new AmbientLight(0xe6f1e9, 1.45));
     const sun = new DirectionalLight(0xffefcf, 2.2);
     sun.position.set(-4, -5, 9);
@@ -228,10 +232,7 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
   }
 
   private ensureAuthoredAsset(piece: WorldPiece) {
-    // Serialise decode and first texture/buffer upload. Starting every visible
-    // GLTF in the same custom-layer frame produced an unbounded GPU upload burst.
-    if (this.assetLoading || !piece.asset || piece.assetStatus === 'loading' || piece.assetStatus === 'ready') return;
-    this.assetLoading = true;
+    if (!piece.asset || piece.assetStatus === 'loading' || piece.assetStatus === 'ready') return;
     piece.assetStatus = 'loading';
     const asset = piece.asset;
     void gltfLoader()
@@ -253,11 +254,6 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
         piece.assetStatus = 'error';
         console.warn(`R3 landmark miniature failed to load ${asset.assetId}; retaining procedural fallback.`, error);
         this.map?.triggerRepaint();
-      })
-      .finally(() => {
-        this.assetLoading = false;
-        // Advance at most one queued authored model on a later task/frame.
-        if (!this.disposed) window.setTimeout(() => this.map?.triggerRepaint(), 250);
       });
   }
 
@@ -266,8 +262,10 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
     const zoom = this.map.getZoom();
     const lod: WorldLod = zoom < 4.8 ? 'theatre' : zoom < 6.4 ? 'campaign' : 'selected';
     const evidence: WorldMiniatureEvidence['objects'] = [];
-    let elevationSampleBudget = 1;
 
+    let elevationBudget = ELEVATION_SAMPLES_PER_FRAME;
+    const now = performance.now();
+    const terrainReady = this.map.areTilesLoaded();
     for (const piece of this.pieces) {
       const enabled = piece.kind === 'port' ? this.layers.ports
         : piece.kind === 'airport' ? this.layers.airports
@@ -288,11 +286,18 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
 
       // Do not request terrain data for culled pieces. This preserves the WP2E
       // network/performance boundary while still grounding every visible piece.
-      if (rootVisible && !piece.elevationSampled && elevationSampleBudget > 0) {
-        elevationSampleBudget -= 1;
+      if (terrainReady && rootVisible && piece.elevation === undefined && elevationBudget > 0
+        && now >= (piece.nextElevationAttemptAt ?? 0)) {
+        elevationBudget -= 1;
+        this.elevationSampleAttempts += 1;
         const sampledElevation = this.map.queryTerrainElevation([piece.node.position[0], piece.node.position[1]]);
-        piece.elevationSampled = true;
-        if (sampledElevation !== null) piece.elevation = sampledElevation;
+        if (sampledElevation === null) {
+          this.elevationNullSamples += 1;
+          piece.nextElevationAttemptAt = now + ELEVATION_NULL_RETRY_MS;
+        } else {
+          piece.elevation = sampledElevation;
+          piece.nextElevationAttemptAt = now + ELEVATION_SAMPLE_INTERVAL_MS;
+        }
       }
       const elevation = piece.elevation ?? 0;
       const coordinate = MercatorCoordinate.fromLngLat(piece.node.position, elevation + CLEARANCE_METRES);
@@ -322,13 +327,19 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
     this.renderer.resetState();
     this.renderer.render(this.scene, this.camera);
     this.renderCount += 1;
-    window.__r3WorldMiniatures = { layerId: this.id, renderCount: this.renderCount, lod, objects: evidence };
+    window.__r3WorldMiniatures = {
+      layerId: this.id,
+      renderCount: this.renderCount,
+      elevationSampleAttempts: this.elevationSampleAttempts,
+      elevationNullSamples: this.elevationNullSamples,
+      lod,
+      objects: evidence
+    };
   }
 
   onRemove() {
     this.disposed = true;
-    releaseR3ThreeRenderer(this.context, this.id);
-    this.context = undefined;
+    this.renderer?.dispose();
     this.renderer = undefined;
     this.map = undefined;
     this.pieces.length = 0;
