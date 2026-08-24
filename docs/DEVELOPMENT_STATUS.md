@@ -1,68 +1,61 @@
 # Future Conquest Tabletop Development Status
 
-Last updated: 2026-08-23
+Last updated: 2026-08-24
 
 ## Current programme
 
-R5 Tabletop is the **authoritative active development programme** for this repository.
+The **R5 Board-Game Rebuild** is the authoritative active development programme for this repository.
 
-Authoritative roadmap: `docs/roadmap/R5_TABLETOP_ROADMAP.md`.
-Authoritative design: `docs/design/r5-tabletop-game-design.md`.
+Authoritative roadmap: `docs/roadmap/R5_BOARDGAME_REBUILD_ROADMAP.md`.
+Supersession/background pointer: `docs/roadmap/R5_TABLETOP_ROADMAP.md`.
+Authoritative rebaseline: `docs/design/R5-BOARDGAME-ON-R3-SHELL-REBASELINE.md`.
+Presentation baseline: `docs/design/R5-R3-SHELL-PRESENTATION-BASELINE.md`.
+Game design: `docs/design/r5-tabletop-game-design.md`.
 Prototype rules: `docs/design/r5-prototype-rules-v0.1.md`.
 Legacy reuse policy: `docs/design/r5-legacy-reuse-matrix.md`.
 
-The imported R2/R3 simulation code and documentation are preserved as legacy/reference material only. They are **not** authority for selecting new work in `future-conquest-tabletop`.
+Core product rule:
 
-The original simulation repository remains separate at `tametheboardgame/future-conquest`.
+> Preserve the world and atmosphere. Replace the administration and mechanics.
 
-## Current R5 work
+The original simulation repository remains separate at `tametheboardgame/future-conquest` and must not be modified by this programme.
 
-1. **R5-WP0.1 - Tabletop design foundation**
-   - PR #1: `R5: establish tabletop design foundation`.
-   - Establishes R5 design, rules, roadmap and legacy-reuse authority.
+## Current delivery state
 
-2. **R5-WP0.2 - Game-state authority refactor plan**
-   - PR #2: `R5-WP0.2: establish tabletop game-state authority`.
-   - Defines tabletop-specific deterministic state/save boundaries, seats/factions, round/action state, cards and board-piece state.
-   - Stacked on WP0.1 until the foundation is merged.
+### R5-BG0 — Restore the real Future Conquest shell
 
-3. **R5-WP1.1 - Prototype strategic map**
-   - PR #3: `R5-WP1.1: prototype strategic map`.
-   - Targets the first board-dominant 15-20 region tabletop map.
-   - Stacked on WP0.2 while foundation work lands.
+Status: **IMPLEMENTED AND MERGED, AWAITING DAVID VISUAL ACCEPTANCE**.
 
-## Delivery priority
+- PR #10 restored the R3-style map-first Future Conquest presentation over R5 rules authority.
+- PR #11 addressed the first BEGIN CAMPAIGN launch-transition freeze.
+- PR #12 (`R5 BG0 hotfix: stage terrain startup and gate campaign runtime`) fixed the remaining production runtime freeze and merged to `main` as `34c8768b8c46933456404b0fe5f986972ee78d87`.
+- PR #12 added a real Playwright/Chromium BG0 runtime gate that clicks BEGIN CAMPAIGN and verifies the shell remains responsive.
+- The BG0 package preserves startup/title/music, physical terrain capability, cities/landmarks, Future portal, political colouring, formation presentation, camera/pan/zoom and the established military visual language.
+- The abstract circular-node prototype is not the intended production presentation.
 
-Reach the first **ugly playable** tabletop loop as quickly as possible:
+**Mandatory gate:** Do not start BG1 until David explicitly confirms that the deployed build launches correctly and looks recognisably like Future Conquest again.
 
-`WP0 -> WP1 board/pieces -> WP2 alternating actions + Move/Attack -> WP3 dice combat -> first micro-playtest`
+## Next approved sequence
 
-Cards, detailed supply, engineering, mobilisation, AI and additional visual polish must not delay the first micro-playtest unless technically required.
+`BG0 visual acceptance -> BG1 six-command-seat rules/state -> BG2 command dice -> BG3 formation components/movement -> BG4 final combat -> personal playtest -> BG5 simplified supply/recovery/reorganisation -> BG6 tactical cards -> BG7 escalation/mobilisation -> full campaign playtest -> BG8 objectives/portal/victory -> BG9 2-6 players -> BG10 AI seats -> BG11 interface convergence -> BG12 simulation/balance`
+
+No later mechanic may be pulled forward to compensate for a weak or unaccepted earlier gate.
 
 ## Source-of-truth rule
 
-For this repository, the current `main` branch plus the R5 documents listed above take precedence over inherited R2/R3 roadmap/status documents, historical PR text, archived branches and prior simulation instructions.
+For this repository, current `main` plus the R5 Board-Game Rebuild roadmap/design documents listed above take precedence over historical R2/R3 work packages, the superseded early R5 WP sequence, archived branches and old PR descriptions.
 
-Any automated worker, Codex task or supervisor must follow R5 unless David explicitly authorises a different programme.
+Inherited R3 code and documentation remain valid presentation/technical reference where explicitly retained by the reuse matrix and presentation baseline, but they are not gameplay authority.
 
-Inherited R3 documents remain available for technical/reference history only and must not be interpreted as active programme authority.
+## Required quality boundary
 
-## Required test boundary
+Current R5/product acceptance must retain:
 
-Required build/deploy CI validates the application that R5 currently ships rather than
-wildcard-running every historical source-contract test in `tests/`. `npm test` is the
-authoritative pre-build gate and contains three explicit groups:
+- deterministic state and PRNG behaviour;
+- save/resume integrity;
+- current R5 rules/engine validation;
+- TypeScript correctness;
+- full production build and strict generated-asset verification;
+- BG0 browser/runtime coverage for campaign launch and board responsiveness.
 
-1. deterministic engine/domain/state and persistence tests retained for reusable
-   behaviour (`npm run test:engine`);
-2. current tabletop state, interaction and WP1.2 presentation tests
-   (`npm run test:r5`); and
-3. focused generated-asset integrity regressions that protect the strict production
-   build (`npm run test:production-assets`).
-
-The remaining R2/R3 tests are historical UI, entrypoint, map-renderer, panel-composition
-or source-string contracts. They remain in the repository for the dedicated historical
-workflows and reference, but are not requirements on the intentionally replaced R5
-React composition. This boundary does not relax production checks: required CI also
-runs the current TypeScript check, the full `npm run build` lifecycle, and its strict
-postbuild motion-comic, title-card and ending-asset verifiers.
+Historical R3 workflows may remain red when they assert superseded composition or implementation details. They must not be described as green, and they may only be retired or scoped when genuinely obsolete. Production-facing terrain, city, portal, music and presentation regressions remain blockers even when an old workflow name begins with R3.
