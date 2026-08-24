@@ -22,6 +22,7 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { GameState, TaskGroup } from '../game/types';
+import { acquireR3ThreeRenderer, releaseR3ThreeRenderer } from './r3-shared-three-renderer';
 import { FORMATION_PRESENTATION_ANIMATION_MS, formationForwardPathTarget, formationPresentationPath, formationPresentationPosition, interpolateFormationPresentation, type FormationGeoPoint } from './r3-formation-movement';
 import { terrainOperationalTerritoryCentres, type TerrainOperationalLayers } from './r3-terrain-operational-markers-core';
 
@@ -396,6 +397,7 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
   readonly renderingMode = '3d' as const;
   private map?: Map;
   private renderer?: WebGLRenderer;
+  private context?: WebGL2RenderingContext;
   private readonly camera = new Camera();
   private readonly scene = new Scene();
   private readonly pieces = new globalThis.Map<string, Piece>();
@@ -413,8 +415,8 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
 
   onAdd(map: Map, gl: WebGL2RenderingContext) {
     this.map = map;
-    this.renderer = new WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true });
-    this.renderer.autoClear = false;
+    this.context = gl;
+    this.renderer = acquireR3ThreeRenderer(map.getCanvas(), gl, this.id);
     this.scene.add(new AmbientLight(0xd9f6ee, 1.5));
     const sun = new DirectionalLight(0xfff2d4, 2.4);
     sun.position.set(-3, -4, 8);
@@ -536,7 +538,8 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
   }
 
   onRemove() {
-    this.renderer?.dispose();
+    releaseR3ThreeRenderer(this.context, this.id);
+    this.context = undefined;
     this.renderer = undefined;
     this.map = undefined;
     for (const piece of this.pieces.values()) disposeMiniature(piece.root);

@@ -557,6 +557,13 @@ export function TerrainMapPrototypeImpl({
     let cancelOperationalLayoutFrame: (() => void) | undefined;
     let revealFrame: number | undefined;
     let readinessDiagnostic: number | undefined;
+    let canvas: HTMLCanvasElement | undefined;
+    const handleContextLost = (event: Event) => {
+      event.preventDefault();
+      if (disposed) return;
+      console.warn('R3 terrain WebGL context lost; switching to the stable command map.');
+      fallbackRef.current('Terrain graphics context was lost; using the stable command-map fallback.');
+    };
     const resizeAfterReveal = () => {
       if (revealFrame !== undefined) window.cancelAnimationFrame(revealFrame);
       revealFrame = window.requestAnimationFrame(() => {
@@ -602,6 +609,8 @@ export function TerrainMapPrototypeImpl({
       });
       ownedMap = map;
       mapRef.current = map;
+      canvas = map.getCanvas();
+      canvas.addEventListener('webglcontextlost', handleContextLost, { once: true });
       Object.assign(window, {
         __r3TerrainMap: map,
         __r3StrategicNodes: STRATEGIC_NODES,
@@ -801,6 +810,7 @@ export function TerrainMapPrototypeImpl({
       formationMiniaturesRef.current = null;
       worldMiniaturesRef.current = null;
       toolbarResizeObserver?.disconnect();
+      canvas?.removeEventListener('webglcontextlost', handleContextLost);
       cancelOperationalLayoutFrame?.();
       window.removeEventListener(R5_GAME_REVEALED_EVENT, resizeAfterReveal);
       if (revealFrame !== undefined) window.cancelAnimationFrame(revealFrame);

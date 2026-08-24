@@ -36,6 +36,11 @@ const heartbeat = async (label, timeout = 2_000) => {
 
 try {
   await page.goto(origin, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  await page.evaluate(() => {
+    window.__r5ContextEvents = [];
+    document.addEventListener('webglcontextlost', event => window.__r5ContextEvents.push({ type: event.type, at: performance.now() }), true);
+    document.addEventListener('webglcontextrestored', event => window.__r5ContextEvents.push({ type: event.type, at: performance.now() }), true);
+  });
   const begin = page.getByRole('button', { name: 'BEGIN CAMPAIGN', exact: true });
   await begin.waitFor({ state: 'visible', timeout: 10_000 });
   await heartbeat('pre-launch');
@@ -74,6 +79,24 @@ try {
     const after = await page.evaluate(() => window.__r3TerrainMap?.getCenter().toArray() ?? null);
     if (JSON.stringify(before) === JSON.stringify(after)) throw new Error('Map pan did not change its camera centre.');
     interaction = { mode: 'maplibre', before, after };
+
+    // Exercise the delayed local-detail path where terrain mesh and both Three
+    // miniature layers normally start, then remain alive beyond that staging.
+    await page.evaluate(() => window.__r3TerrainMap?.jumpTo({ zoom: 9.7 }));
+    await page.waitForFunction(() => {
+      const status = document.querySelector('.r3-terrain-prototype')?.getAttribute('data-physical-formations');
+      return status === 'ready' || status === 'fallback';
+    }, undefined, { timeout: 20_000 });
+    for (let second = 1; second <= 12; second += 1) {
+      await page.waitForTimeout(1_000);
+      await heartbeat(`post-rich-startup-${second}s`);
+    }
+    const rendererEvidence = await page.evaluate(() => window.__r3ThreeRenderer ?? null);
+    if (rendererEvidence && rendererEvidence.active !== 1) {
+      throw new Error(`Expected one shared Three renderer: ${JSON.stringify(rendererEvidence)}`);
+    }
+    const canvasCountAfterStartup = await page.locator('.maplibregl-canvas').count();
+    if (canvasCountAfterStartup !== 1) throw new Error(`Renderer count changed after rich startup: ${canvasCountAfterStartup}`);
   } else {
     const fallbackMap = page.locator('.r5-rich-map-fallback .europe-map-frame');
     await fallbackMap.waitFor({ state: 'visible', timeout: 5_000 });
@@ -84,7 +107,18 @@ try {
     const after = await zoomStatus.innerText();
     await heartbeat('fallback-map-interaction');
     interaction = { mode: 'stable-map', before, after };
+    // A renderer fallback is accepted only if it remains responsive through
+    // the same delayed-rich-layer window as the hardware path.
+    for (let second = 1; second <= 12; second += 1) {
+      await page.waitForTimeout(1_000);
+      await heartbeat(`post-fallback-${second}s`);
+    }
   }
+
+  const expandedAfterWindow = await trayToggle.getAttribute('aria-expanded');
+  await trayToggle.click({ timeout: 2_000 });
+  await page.waitForFunction(before => document.querySelector('.r3-tray-toggle')?.getAttribute('aria-expanded') !== before, expandedAfterWindow);
+  await heartbeat('post-window-tray-toggle');
 
   const diagnostics = await page.evaluate(() => ({
     terrainStatus: document.querySelector('.r3-terrain-prototype')?.getAttribute('data-status') ?? 'fallback',
@@ -94,7 +128,9 @@ try {
     trayExpanded: document.querySelector('.r3-tray-toggle')?.getAttribute('aria-expanded') ?? null,
     mapLoaded: window.__r3TerrainMap?.loaded() ?? null,
     styleLoaded: window.__r3TerrainMap?.isStyleLoaded() ?? null,
-    tilesLoaded: window.__r3TerrainMap?.areTilesLoaded() ?? null
+    tilesLoaded: window.__r3TerrainMap?.areTilesLoaded() ?? null,
+    threeRenderer: window.__r3ThreeRenderer ?? null,
+    contextEvents: window.__r5ContextEvents ?? []
   }));
   console.log('R5 BG0 runtime diagnostics:', JSON.stringify({ ...diagnostics, interaction, consoleErrors, requestFailures }));
   await page.screenshot({ path: screenshotPath, fullPage: true });

@@ -13,6 +13,7 @@ import {
   type LandmarkMiniatureCityVariant
 } from './r3-landmark-miniature-assets';
 import type { TerrainOperationalLayers } from './r3-terrain-operational-markers-core';
+import { acquireR3ThreeRenderer, releaseR3ThreeRenderer } from './r3-shared-three-renderer';
 
 export const R3_WORLD_MINIATURE_LAYER_ID = 'r3-wp3-5-world-miniatures';
 const CLEARANCE_METRES = 22;
@@ -181,6 +182,7 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
   readonly renderingMode = '3d' as const;
   private map?: Map;
   private renderer?: WebGLRenderer;
+  private context?: WebGL2RenderingContext;
   private readonly camera = new Camera();
   private readonly scene = new Scene();
   private readonly pieces: WorldPiece[];
@@ -210,8 +212,8 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
   onAdd(map: Map, gl: WebGL2RenderingContext) {
     this.disposed = false;
     this.map = map;
-    this.renderer = new WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true });
-    this.renderer.autoClear = false;
+    this.context = gl;
+    this.renderer = acquireR3ThreeRenderer(map.getCanvas(), gl, this.id);
     this.scene.add(new AmbientLight(0xe6f1e9, 1.45));
     const sun = new DirectionalLight(0xffefcf, 2.2);
     sun.position.set(-4, -5, 9);
@@ -311,7 +313,8 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
 
   onRemove() {
     this.disposed = true;
-    this.renderer?.dispose();
+    releaseR3ThreeRenderer(this.context, this.id);
+    this.context = undefined;
     this.renderer = undefined;
     this.map = undefined;
     this.pieces.length = 0;
