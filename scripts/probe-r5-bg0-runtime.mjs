@@ -67,7 +67,10 @@ const heartbeat = async (label, timeout = 2_000) => {
 
 try {
   const runtimeUrl = new URL(origin);
-  runtimeUrl.searchParams.set('r5Scene', sceneMode);
+  if (diagnosticOnly) {
+    runtimeUrl.searchParams.set('r5Diagnostic', 'ci');
+    runtimeUrl.searchParams.set('r5Scene', sceneMode);
+  }
   await page.goto(runtimeUrl.href, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   const begin = page.getByRole('button', { name: 'BEGIN CAMPAIGN', exact: true });
   await begin.waitFor({ state: 'visible', timeout: 10_000 });
@@ -103,11 +106,13 @@ try {
       renderers: document.querySelectorAll('.r3-terrain-prototype').length
     };
   });
-  for (const delay of [1_000, 4_000, 5_000, 10_000]) {
+  const readinessStarted = Date.now();
+  const periodicSnapshots = [1_000, 5_000, 10_000, 20_000].map(delay => (async () => {
     await page.waitForTimeout(delay);
-    console.log(`R5 periodic readiness ${sceneMode}:`, JSON.stringify(await readinessSnapshot()));
-  }
+    console.log(`R5 periodic readiness ${sceneMode} ${delay}ms:`, JSON.stringify(await readinessSnapshot()));
+  })());
   if (diagnosticOnly) {
+    await Promise.all(periodicSnapshots);
     await heartbeat(`diagnostic-${sceneMode}`);
     console.log(`R5 isolation result ${sceneMode}:`, JSON.stringify(await readinessSnapshot()));
     await page.screenshot({ path: screenshotPath, fullPage: true });
@@ -120,9 +125,10 @@ try {
 
   const terrain = page.locator('.r3-terrain-prototype');
   const ready = page.locator('.r3-terrain-prototype[data-status="ready"]');
-  await ready.waitFor({ state: 'visible', timeout: 30_000 });
+  await ready.waitFor({ state: 'visible', timeout: Math.max(1, 30_000 - (Date.now() - readinessStarted)) });
   await page.waitForFunction(() => document.querySelector('.r3-terrain-prototype')?.getAttribute('data-physical-formations') === 'ready', null, { timeout: 15_000 });
   await page.waitForFunction(() => (window.__r3FormationMiniatures?.renderCount ?? 0) > 0, null, { timeout: 10_000 });
+  await Promise.all(periodicSnapshots);
   const rendererCount = await terrain.count();
   const canvasCount = await page.locator('.maplibregl-canvas').count();
   if (rendererCount > 1 || canvasCount > 1) throw new Error(`Duplicate terrain runtime: ${rendererCount} renderer(s), ${canvasCount} canvas(es)`);

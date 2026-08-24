@@ -92,6 +92,11 @@ test('CI diagnostics isolate custom layers without weakening the full-scene gate
   assert.match(workflow, /none world formations full/);
   assert.match(workflow, /if: failure\(\)/);
   assert.match(probe, /r5Scene/);
+  assert.match(probe, /r5Diagnostic/);
+  assert.match(probe, /Promise\.all\(periodicSnapshots\)/);
+  assert.match(probe, /30_000 - \(Date\.now\(\) - readinessStarted\)/);
+  assert.match(terrain, /diagnosticParams\.get\('r5Diagnostic'\) === 'ci'/);
+  assert.match(terrain, /\['none', 'world', 'formations', 'full'\]\.includes/);
   assert.match(terrain, /sceneMode === 'world' \|\| sceneMode === 'full'/);
   assert.match(terrain, /sceneMode === 'formations' \|\| sceneMode === 'full'/);
   assert.match(terrain, /triggerRepaintCount/);

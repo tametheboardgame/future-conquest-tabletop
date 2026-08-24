@@ -594,7 +594,12 @@ export function TerrainMapPrototypeImpl({
         __r3TerritoryCentres: terrainOperationalTerritoryCentres
       });
       const diagnosticWindow = window as typeof window & { __r3TerrainDiagnostics?: Record<string, unknown> };
-      const sceneMode = new URLSearchParams(window.location.search).get('r5Scene') ?? 'full';
+      const diagnosticParams = new URLSearchParams(window.location.search);
+      const requestedSceneMode = diagnosticParams.get('r5Scene');
+      const sceneMode = diagnosticParams.get('r5Diagnostic') === 'ci'
+        && ['none', 'world', 'formations', 'full'].includes(requestedSceneMode ?? '')
+        ? requestedSceneMode as 'none' | 'world' | 'formations' | 'full'
+        : 'full';
       const diagnostics = diagnosticWindow.__r3TerrainDiagnostics = {
         sceneMode,
         mapConstructCount: Number(diagnosticWindow.__r3TerrainDiagnostics?.mapConstructCount ?? 0) + 1,
@@ -703,11 +708,12 @@ export function TerrainMapPrototypeImpl({
       });
 
       diagnosticTimers = [1_000, 5_000, 10_000, 20_000].map(delay => window.setTimeout(() => {
-        if (disposed || loadedRef.current) return;
+        if (disposed) return;
         const sourceIds = [
           'r3-wp2b-land',
           'r3-wp2b-terrain-dem',
           'r3-wp2b-hillshade-dem',
+          'r3-wp3-9b2-physical-colour',
           'campaign-territories',
           'campaign-fronts',
           'campaign-strategic-routes',
@@ -719,7 +725,7 @@ export function TerrainMapPrototypeImpl({
         const canvasRect = canvas.getBoundingClientRect();
         const internal = map as unknown as Record<string, unknown>;
         const internalStyle = internal.style as Record<string, unknown> | undefined;
-        const sourceCaches = (internalStyle?._sourceCaches ?? internalStyle?.sourceCaches) as Record<string, Record<string, unknown>> | undefined;
+        const sourceCaches = (internalStyle?.tileManagers ?? internalStyle?._sourceCaches ?? internalStyle?.sourceCaches) as Record<string, Record<string, unknown>> | undefined;
         console.info(`R3 terrain readiness diagnostic ${delay}ms`, JSON.stringify({
           mapLoaded: map.loaded(),
           styleLoaded: map.isStyleLoaded(),
@@ -728,8 +734,9 @@ export function TerrainMapPrototypeImpl({
           dirtyFlags: Object.fromEntries(['_styleDirty', '_sourcesDirty', '_repaint', '_loaded'].map(key => [key, internal[key] ?? null])),
           styleFlags: internalStyle ? Object.fromEntries(['_loaded', '_changed', '_layerOrderChanged', '_updatedSources'].map(key => [key, internalStyle[key] instanceof Set ? [...internalStyle[key] as Set<unknown>] : internalStyle[key] ?? null])) : null,
           sourceCacheState: sourceCaches ? Object.fromEntries(Object.entries(sourceCaches).map(([id, cache]) => {
-            const tiles = cache._tiles as Record<string, { state?: string }> | undefined;
-            return [id, { loaded: typeof cache.loaded === 'function' ? (cache.loaded as () => boolean)() : null, tileStates: tiles ? Object.values(tiles).reduce<Record<string, number>>((counts, tile) => { const state = tile.state ?? 'unknown'; counts[state] = (counts[state] ?? 0) + 1; return counts; }, {}) : null }];
+            const tiles = (cache._tiles ?? cache.tiles) as Record<string, { state?: string }> | undefined;
+            const source = typeof cache.getSource === 'function' ? (cache.getSource as () => { loaded?: () => boolean })() : undefined;
+            return [id, { loaded: typeof cache.loaded === 'function' ? (cache.loaded as () => boolean)() : null, sourceLoaded: typeof source?.loaded === 'function' ? source.loaded() : null, tileStates: tiles ? Object.values(tiles).reduce<Record<string, number>>((counts, tile) => { const state = tile.state ?? 'unknown'; counts[state] = (counts[state] ?? 0) + 1; return counts; }, {}) : null }];
           })) : null,
           diagnostics,
           sourceUpdates: (window as typeof window & { __r3TerrainSourceUpdates?: unknown }).__r3TerrainSourceUpdates ?? null,
