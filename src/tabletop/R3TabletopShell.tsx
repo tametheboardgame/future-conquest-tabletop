@@ -5,6 +5,7 @@ import type { TabletopBoardDefinition } from './board';
 import type { TabletopPrototypeForce } from './pieces';
 import { RichMapBackdrop } from './RichMapBackdrop';
 import type { TabletopGameState } from './state';
+import type { R5MapDiagnosticMode } from './r5-hardware-diagnostic';
 
 interface Props {
   board: TabletopBoardDefinition;
@@ -12,6 +13,7 @@ interface Props {
   game: TabletopGameState;
   onAction: (request: CoreActionRequest) => CoreActionResult;
   onPass: () => void;
+  diagnosticMode?: R5MapDiagnosticMode;
 }
 
 type Action = 'move' | 'attack';
@@ -21,7 +23,7 @@ const seatName: Readonly<Record<string, string>> = { 'future-seat': 'Future Forc
  * R3 is deliberately only the view/controller here. Every piece, target and
  * result below is read from, or sent to, the R5 tabletop boundary in Props.
  */
-export function R3TabletopShell({ board, force, game, onAction, onPass }: Props) {
+export function R3TabletopShell({ board, force, game, onAction, onPass, diagnosticMode = 'production' }: Props) {
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
   const [selectedRegionId, setSelectedRegionId] = useState('paris');
   const [action, setAction] = useState<Action>('move');
@@ -92,7 +94,7 @@ export function R3TabletopShell({ board, force, game, onAction, onPass }: Props)
       </nav>
 
       <section className="r3-map-host" aria-label={`${board.name} physical terrain board`}>
-        <RichMapBackdrop board={board} force={force} game={game} selectedPieceId={selectedPieceId} selectedRegionId={selectedRegionId} onSelectPiece={selectPiece} onSelectRegion={selectRegion} />
+        <RichMapBackdrop board={board} force={force} game={game} selectedPieceId={selectedPieceId} selectedRegionId={selectedRegionId} onSelectPiece={selectPiece} onSelectRegion={selectRegion} diagnosticMode={diagnosticMode} />
         <div className="r3-map-caption"><span>THEATRE // EUROPE</span><strong>Physical command map</strong><small>Pan · zoom · select formation miniatures</small></div>
         <div className="r3-legal-targets" aria-label="R5 legal geographic targets">
           {[...targets].map(regionId => {

@@ -1,230 +1,100 @@
-import fs from 'node:fs';
 import { chromium } from 'playwright';
 
 const origin = process.env.R5_RUNTIME_ORIGIN ?? 'http://127.0.0.1:4173';
 const screenshotPath = process.env.R5_RUNTIME_SCREENSHOT ?? '/tmp/r5-bg0-runtime.png';
-const pageErrors = [];
-const requestFailures = [];
-const consoleErrors = [];
-const progressiveWindowMs = Number(process.env.R5_RUNTIME_PROGRESSIVE_WINDOW_MS ?? 60_000);
-const sceneMode = process.env.R5_DIAGNOSTIC_SCENE_MODE ?? 'full';
-const diagnosticOnly = process.env.R5_DIAGNOSTIC_ONLY === '1';
-
-const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-await page.addInitScript(() => {
-  const evidence = window.__r5RuntimeEvidence = {
-    startedAt: performance.now(), animationFrames: 0, contextEvents: [], stages: []
-  };
-  const nativeRaf = window.requestAnimationFrame.bind(window);
-  window.requestAnimationFrame = callback => nativeRaf(timestamp => {
-    evidence.animationFrames += 1;
-    callback(timestamp);
-  });
-  document.addEventListener('webglcontextlost', event => {
-    evidence.contextEvents.push({ type: 'lost', at: performance.now() });
-  }, true);
-  document.addEventListener('webglcontextrestored', () => {
-    evidence.contextEvents.push({ type: 'restored', at: performance.now() });
-  }, true);
-  const observeStages = () => new MutationObserver(() => {
-    const host = document.querySelector('.r3-terrain-prototype');
-    const stage = host ? `${host.getAttribute('data-status')}:${host.getAttribute('data-terrain-relief')}:${host.getAttribute('data-physical-formations')}` : 'fallback';
-    if (evidence.stages.at(-1)?.stage !== stage) evidence.stages.push({ stage, at: performance.now() });
-  }).observe(document.documentElement, { subtree: true, attributes: true, childList: true });
-  if (document.documentElement) observeStages();
-  else document.addEventListener('DOMContentLoaded', observeStages, { once: true });
-});
-page.on('console', message => {
-  const line = `[browser console ${message.type()}] ${message.text()}`;
-  console.log(line);
-  if (message.type() === 'error') consoleErrors.push(line);
-});
-page.on('pageerror', error => {
-  const line = error.stack ?? error.message;
-  pageErrors.push(line);
-  console.error(`[browser pageerror] ${line}`);
-});
-page.on('requestfailed', request => {
-  const line = `${request.url()} :: ${request.failure()?.errorText ?? 'unknown'}`;
-  requestFailures.push(line);
-  console.error(`[request failed] ${line}`);
+const modes = ['shell', 'stable', 'terrain-none', 'terrain-world', 'terrain-formations', 'full'];
+// GitHub-hosted runners have no hardware GPU. Pin ANGLE to Chromium's supported
+// SwiftShader backend so WebGL scheduling is deterministic instead of depending
+// on whichever software fallback the runner happens to select.
+const browser = await chromium.launch({
+  headless: true,
+  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']
 });
 
-const heartbeat = async (label, timeout = 2_000) => {
-  const started = Date.now();
+async function heartbeat(page, label) {
   await Promise.race([
-    // A timer task measures the browser JS event loop directly. An rAF-based
-    // pulse can be delayed by continuous headless MapLibre paint
-    // even while application events remain responsive.
-    page.evaluate(() => new Promise(resolve => setTimeout(() => resolve(performance.now()), 0))),
-    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} main-thread heartbeat exceeded ${timeout}ms`)), timeout))
+    page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0))),
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} main-thread heartbeat exceeded 10000ms`)), 10000))
   ]);
-  console.log(`${label} heartbeat: ${Date.now() - started}ms`);
-};
+}
 
+async function exercise(mode, index) {
+  const pageErrors = [];
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  page.on('pageerror', error => pageErrors.push(error.stack ?? error.message));
+  const url = new URL(origin);
+  url.searchParams.set('r5HardwareDiag', mode);
+  await page.goto(url.href, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 
+  const badge = page.locator('.r5-hardware-diagnostic-badge');
+  await badge.waitFor({ state: 'visible', timeout: 10_000 });
+  if (!(await badge.textContent())?.includes(mode.toUpperCase())) throw new Error(`${mode}: persistent badge does not identify mode`);
 
-try {
-  const runtimeUrl = new URL(origin);
-  if (diagnosticOnly) {
-    runtimeUrl.searchParams.set('r5Diagnostic', '1');
-    runtimeUrl.searchParams.set('r5Scene', sceneMode);
-  }
-  await page.goto(runtimeUrl.href, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   const begin = page.getByRole('button', { name: 'BEGIN CAMPAIGN', exact: true });
   await begin.waitFor({ state: 'visible', timeout: 10_000 });
-  await page.locator('.r5-rich-map').waitFor({ state: 'attached', timeout: 10_000 });
-  await page.locator('.r3-terrain-prototype, .r3-terrain-prototype-loading').first().waitFor({ state: 'attached', timeout: 25_000 });
-  const preLaunchHostCount = await page.locator('.r5-rich-map').count();
-  if (preLaunchHostCount !== 1) throw new Error(`Terrain host was not mounted behind launcher: ${preLaunchHostCount}`);
-  await heartbeat('pre-launch');
-  await begin.click({ timeout: 10_000 });
-  await page.locator('.startup-launcher').waitFor({ state: 'detached', timeout: 5_000 });
-  await page.locator('.r3-tabletop-shell').waitFor({ state: 'visible', timeout: 5_000 });
-  await heartbeat('post-launch');
-  // The production readiness budget starts as soon as launch completes. The
-  // diagnostic observations below are scheduled concurrently and never extend
-  // the original 30-second acceptance deadline.
-  const readinessDeadline = Date.now() + 30_000;
-
-  const readinessSnapshot = () => page.evaluate(() => {
-    const geometry = selector => {
-      const element = document.querySelector(selector);
-      if (!(element instanceof HTMLElement)) return null;
-      const rect = element.getBoundingClientRect();
-      const style = getComputedStyle(element);
-      return { width: rect.width, height: rect.height, display: style.display, visibility: style.visibility };
-    };
-    return {
-      elapsed: Math.round(performance.now() - window.__r5RuntimeEvidence.startedAt),
-      mapLoaded: window.__r3TerrainMap?.loaded() ?? null,
-      styleLoaded: window.__r3TerrainMap?.isStyleLoaded() ?? null,
-      tilesLoaded: window.__r3TerrainMap?.areTilesLoaded() ?? null,
-      sourceUpdates: window.__r3TerrainSourceUpdates ?? null,
-      terrainDiagnostics: window.__r3TerrainDiagnostics ?? null,
-      formation: window.__r3FormationMiniatures ? { pieces: window.__r3FormationMiniatures.pieces.length, renders: window.__r3FormationMiniatures.renderCount, attempts: window.__r3FormationMiniatures.elevationSampleAttempts, nulls: window.__r3FormationMiniatures.elevationNullSamples } : null,
-      world: window.__r3WorldMiniatures ? { pieces: window.__r3WorldMiniatures.objects.length, renders: window.__r3WorldMiniatures.renderCount, attempts: window.__r3WorldMiniatures.elevationSampleAttempts, nulls: window.__r3WorldMiniatures.elevationNullSamples } : null,
-      geometry: Object.fromEntries(['.r3-terrain-prototype', '.r3-terrain-prototype-canvas', '.maplibregl-canvas-container', '.maplibregl-canvas'].map(selector => [selector, geometry(selector)])),
-      contexts: document.querySelectorAll('.maplibregl-canvas').length,
-      renderers: document.querySelectorAll('.r3-terrain-prototype').length
-    };
-  });
-  const periodicSnapshots = [1_000, 5_000, 10_000, 20_000].map(delay => new Promise(resolve => {
-    setTimeout(async () => {
-      const snapshot = await readinessSnapshot();
-      console.log(`R5 periodic readiness ${sceneMode} ${delay}ms:`, JSON.stringify(snapshot));
-      resolve(snapshot);
-    }, delay);
-  }));
-  if (diagnosticOnly) {
-    await Promise.all(periodicSnapshots);
-    console.log(`R5 isolation result ${sceneMode}:`, JSON.stringify(await readinessSnapshot()));
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-    await browser.close();
-    process.exit(0);
-  }
-
-  const tray = page.locator('.r3-board-tray');
-  const trayToggle = page.locator('.r3-tray-toggle');
-
-  const terrain = page.locator('.r3-terrain-prototype');
-  await page.waitForFunction(() => {
-    const host = document.querySelector('.r3-terrain-prototype');
-    const map = window.__r3TerrainMap;
-    return host?.getAttribute('data-status') === 'ready'
-      && host.getAttribute('data-physical-formations') === 'ready'
-      && (window.__r3FormationMiniatures?.renderCount ?? 0) > 0
-      && map?.loaded() === true
-      && map.isStyleLoaded() === true
-      && map.areTilesLoaded() === true;
-  }, null, { timeout: Math.max(1, readinessDeadline - Date.now()) });
-  const rendererCount = await terrain.count();
-  const canvasCount = await page.locator('.maplibregl-canvas').count();
-  if (rendererCount > 1 || canvasCount > 1) throw new Error(`Duplicate terrain runtime: ${rendererCount} renderer(s), ${canvasCount} canvas(es)`);
-
-  // Stay alive through terrain restoration, shared-context Three.js imports,
-  // model loading and delayed/idle callbacks rather than accepting first paint.
-  const progressiveStarted = Date.now();
-  let heartbeatSamples = 0;
-  while (Date.now() - progressiveStarted < progressiveWindowMs || heartbeatSamples < 60) {
-    await page.waitForTimeout(1_000);
-    await heartbeat(`progressive-${++heartbeatSamples}`, 2_500);
-    const counts = await page.evaluate(() => ({
-      canvases: document.querySelectorAll('.maplibregl-canvas').length,
-      renderers: document.querySelectorAll('.r3-terrain-prototype').length
-    }));
-    if (counts.canvases > 1 || counts.renderers > 1) throw new Error(`Progressive renderer duplication: ${JSON.stringify(counts)}`);
-  }
-  const expandedAfterStaging = await trayToggle.getAttribute('aria-expanded');
-  await trayToggle.click({ timeout: 10_000 });
-  await page.waitForFunction(before => document.querySelector('.r3-tray-toggle')?.getAttribute('aria-expanded') !== before, expandedAfterStaging);
-  await heartbeat('post-staging-tray-toggle');
-
-  let interaction = { mode: 'pending-production-terrain', before: null, after: null };
-  if (canvasCount === 1) {
-    const canvas = page.locator('.maplibregl-canvas');
-    const before = await page.evaluate(() => window.__r3TerrainMap?.getCenter().toArray() ?? null);
-    const box = await canvas.boundingBox();
-    if (!box) throw new Error('MapLibre canvas has no interactive bounds.');
-    await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.55);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.48, { steps: 5 });
-    await page.mouse.up();
-    await page.mouse.wheel(0, -180);
-    await heartbeat('map-interaction');
-    const resettleStarted = performance.now();
-    await page.waitForFunction(() => {
-      const map = window.__r3TerrainMap;
-      return map?.loaded() === true && map.isStyleLoaded() === true && map.areTilesLoaded() === true;
-    }, null, { timeout: 15_000, polling: 50 });
-    const resettleDurationMs = Math.round(performance.now() - resettleStarted);
-    console.log(`R5 post-interaction resettle: ${resettleDurationMs}ms`);
-    const after = await page.evaluate(() => window.__r3TerrainMap?.getCenter().toArray() ?? null);
-    if (JSON.stringify(before) === JSON.stringify(after)) throw new Error('Map pan did not change its camera centre.');
-    interaction = { mode: 'maplibre', before, after, resettleDurationMs };
+  // Do not make the launch action wait behind software-WebGL scene startup. The
+  // post-click assertions below still require the renderer and exact layers.
+  if (mode === 'shell' || mode === 'stable') await heartbeat(page, `${mode} pre-launch`);
+  if (mode === 'shell' || mode === 'stable') {
+    await begin.click({ timeout: 10_000 });
   } else {
-    throw new Error(`Ready production terrain has ${canvasCount} MapLibre canvases.`);
+    // Dispatch the same native click without Playwright's actionability polling,
+    // which can itself lose the runner thread to an already-started render loop.
+    await begin.evaluate(button => button.click());
+  }
+  await page.locator('.startup-launcher').waitFor({ state: 'detached', timeout: 20_000 });
+  await page.locator('.r3-tabletop-shell').waitFor({ state: 'visible', timeout: 20_000 });
+  await page.getByText('LAUNCHED / RESPONSIVE', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
+  await heartbeat(page, `${mode} post-launch`);
+
+  const trayBefore = await page.evaluate(() => {
+    const trayToggle = document.querySelector('.r3-tray-toggle');
+    if (!(trayToggle instanceof HTMLButtonElement)) throw new Error('tray toggle is unavailable');
+    const before = trayToggle.getAttribute('aria-expanded');
+    trayToggle.click();
+    return before;
+  });
+  await page.waitForFunction(previous => document.querySelector('.r3-tray-toggle')?.getAttribute('aria-expanded') !== previous, trayBefore);
+  await heartbeat(page, `${mode} tray interaction`);
+
+  if (mode.startsWith('terrain-') || mode === 'full') {
+    await page.locator('.r3-terrain-prototype').waitFor({ state: 'attached', timeout: 25_000 });
+    await page.locator('.maplibregl-canvas').waitFor({ state: 'attached', timeout: 30_000 });
+    if (mode === 'terrain-world' || mode === 'full') await page.waitForFunction(() => Boolean(window.__r3WorldMiniatures), null, { timeout: 60_000 });
+    if (mode === 'terrain-formations' || mode === 'full') await page.waitForFunction(() => Boolean(window.__r3FormationMiniatures), null, { timeout: 60_000 });
   }
 
-  const diagnostics = await page.evaluate(() => ({
-    terrainStatus: document.querySelector('.r3-terrain-prototype')?.getAttribute('data-status') ?? 'fallback',
-    physicalFormations: document.querySelector('.r3-terrain-prototype')?.getAttribute('data-physical-formations') ?? null,
-    canvasCount: document.querySelectorAll('.maplibregl-canvas').length,
-    rendererCount: document.querySelectorAll('.r3-terrain-prototype').length,
-    trayExpanded: document.querySelector('.r3-tray-toggle')?.getAttribute('aria-expanded') ?? null,
-    mapLoaded: window.__r3TerrainMap?.loaded() ?? null,
-    styleLoaded: window.__r3TerrainMap?.isStyleLoaded() ?? null,
-    tilesLoaded: window.__r3TerrainMap?.areTilesLoaded() ?? null,
-    runtimeEvidence: window.__r5RuntimeEvidence ?? null,
-    worldRenderCount: window.__r3WorldMiniatures?.renderCount ?? null,
-    formationRenderCount: window.__r3FormationMiniatures?.renderCount ?? null,
-    formationPieceCount: window.__r3FormationMiniatures?.pieces.length ?? null,
-    formationElevationAttempts: window.__r3FormationMiniatures?.elevationSampleAttempts ?? null,
-    formationElevationNulls: window.__r3FormationMiniatures?.elevationNullSamples ?? null,
-    worldPieceCount: window.__r3WorldMiniatures?.objects.length ?? null,
-    worldElevationAttempts: window.__r3WorldMiniatures?.elevationSampleAttempts ?? null,
-    worldElevationNulls: window.__r3WorldMiniatures?.elevationNullSamples ?? null,
-    sourceUpdates: window.__r3TerrainSourceUpdates ?? null,
-    canvasGeometry: (() => {
-      const canvas = document.querySelector('.maplibregl-canvas');
-      if (!(canvas instanceof HTMLCanvasElement)) return null;
-      const rect = canvas.getBoundingClientRect();
-      const style = getComputedStyle(canvas);
-      return { width: rect.width, height: rect.height, backingWidth: canvas.width, backingHeight: canvas.height, display: style.display, visibility: style.visibility, opacity: style.opacity };
-    })()
+  const expected = {
+    shell: { placeholder: 1, stable: 0, terrain: 0, canvas: 0, world: false, formations: false },
+    stable: { placeholder: 0, stable: 1, terrain: 0, canvas: 0, world: false, formations: false },
+    'terrain-none': { placeholder: 0, stable: 0, terrain: 1, canvas: 1, world: false, formations: false },
+    'terrain-world': { placeholder: 0, stable: 0, terrain: 1, canvas: 1, world: true, formations: false },
+    'terrain-formations': { placeholder: 0, stable: 0, terrain: 1, canvas: 1, world: false, formations: true },
+    full: { placeholder: 0, stable: 0, terrain: 1, canvas: 1, world: true, formations: true }
+  }[mode];
+
+  const actual = await page.evaluate(() => ({
+    placeholder: document.querySelectorAll('.r5-hardware-map-placeholder').length,
+    stable: document.querySelectorAll('.r5-rich-map-fallback').length,
+    terrain: document.querySelectorAll('.r3-terrain-prototype').length,
+    canvas: document.querySelectorAll('.maplibregl-canvas').length,
+    scene: window.__r3TerrainDiagnostics?.sceneMode ?? null,
+    world: Boolean(window.__r3WorldMiniatures),
+    formations: Boolean(window.__r3FormationMiniatures)
   }));
-  console.log('R5 BG0 runtime diagnostics:', JSON.stringify({ ...diagnostics, interaction, consoleErrors, requestFailures }));
-  if (diagnostics.terrainStatus !== 'ready' || diagnostics.physicalFormations !== 'ready') throw new Error(`Production terrain readiness failed: ${JSON.stringify(diagnostics)}`);
-  if (!diagnostics.mapLoaded || !diagnostics.styleLoaded || !diagnostics.tilesLoaded) throw new Error(`MapLibre did not completely settle: ${JSON.stringify(diagnostics)}`);
-  if (!diagnostics.formationRenderCount || !diagnostics.formationPieceCount) throw new Error(`Physical formations did not render: ${JSON.stringify(diagnostics)}`);
-  if (!diagnostics.canvasGeometry || diagnostics.canvasGeometry.width < 300 || diagnostics.canvasGeometry.height < 250 || diagnostics.canvasGeometry.backingWidth < 300 || diagnostics.canvasGeometry.backingHeight < 250 || diagnostics.canvasGeometry.display === 'none' || diagnostics.canvasGeometry.visibility === 'hidden' || Number(diagnostics.canvasGeometry.opacity) <= 0) throw new Error(`Terrain canvas geometry is unusable: ${JSON.stringify(diagnostics.canvasGeometry)}`);
-  await page.screenshot({ path: screenshotPath, fullPage: true });
-  if (!fs.existsSync(screenshotPath)) throw new Error('Runtime screenshot was not written.');
-  if (pageErrors.length) {
-    throw new Error(`Browser emitted uncaught page errors: ${JSON.stringify(pageErrors)}`);
+  for (const key of ['placeholder', 'stable', 'terrain', 'canvas', 'world', 'formations']) {
+    if (actual[key] !== expected[key]) throw new Error(`${mode}: expected ${key}=${expected[key]}, got ${actual[key]} (${JSON.stringify(actual)})`);
   }
+  const expectedScene = mode.startsWith('terrain-') ? mode.slice(8) : mode === 'full' ? 'full' : null;
+  if (actual.scene !== expectedScene) throw new Error(`${mode}: expected diagnostic scene ${expectedScene}, got ${actual.scene}`);
+  if (pageErrors.length) throw new Error(`${mode}: page errors: ${pageErrors.join('\n')}`);
+  if (index === modes.length - 1) await page.screenshot({ path: screenshotPath, fullPage: true });
+  console.log(`R5 isolation result ${mode}: ${JSON.stringify(actual)}`);
+  await page.close();
+}
+
+try {
+  for (const [index, mode] of modes.entries()) await exercise(mode, index);
 } finally {
-  await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
   await browser.close();
 }

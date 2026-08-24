@@ -33,8 +33,19 @@ import '../r3-wp8-accessibility.css';
 import {
   TerrainMapPrototypeImpl,
   prewarmTerrainRuntime,
+  type TerrainDiagnosticScene,
   type TerrainMapPrototypeProps
 } from './TerrainMapPrototypeImpl';
+
+const DIAGNOSTIC_SCENES: readonly TerrainDiagnosticScene[] = ['none', 'world', 'formations', 'full'];
+
+function compatibleDiagnosticScene(): TerrainDiagnosticScene | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const query = new URLSearchParams(window.location.search);
+  if (query.get('r5Diagnostic') !== '1') return undefined;
+  const requested = query.get('r5Scene') as TerrainDiagnosticScene | null;
+  return requested && DIAGNOSTIC_SCENES.includes(requested) ? requested : undefined;
+}
 
 const STRATEGIC_PREFERENCES_KEY = 'future-conquest:r3-wp5-strategic-overlay';
 const terrainGeoJSON = activeGeojson as unknown as Parameters<typeof buildTerrainPoliticalGeoJSON>[0];
@@ -73,6 +84,7 @@ function strategicPreferences(): StrategicPreferences {
 }
 
 export function TerrainMapPrototype(props: TerrainMapPrototypeProps) {
+  const diagnosticScene = props.diagnosticScene ?? compatibleDiagnosticScene();
   const [profile, setProfile] = useState<TerrainPresentationProfile>(browserTerrainProfile);
   const [preferences, setPreferences] = useState<StrategicPreferences>(strategicPreferences);
   const { reducedMotion, motionScale, colourBlindAssist } = useLiveGlobalSettings();
@@ -242,7 +254,7 @@ export function TerrainMapPrototype(props: TerrainMapPrototypeProps) {
     >
       2D accessible map
     </button>
-    <TerrainMapPrototypeImpl key={profile} {...props} presentationProfile={profile} />
+    <TerrainMapPrototypeImpl key={profile} {...props} diagnosticScene={diagnosticScene} presentationProfile={profile} />
     <aside className="r3-strategic-information-control" aria-label="Strategic information layer">
       <label>
         <span>Strategic view</span>

@@ -42,15 +42,9 @@ jobs:
           for i in {1..30}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && exit 0; sleep 1; done
           cat /tmp/future-conquest-vite.log
           exit 1
-      - name: Exercise R5 campaign launch in Chromium
+      - name: Exercise campaign launch isolation matrix
         id: browser_gate
         run: node scripts/probe-r5-bg0-runtime.mjs
-      - name: Isolate custom-layer settlement paths
-        if: failure() && steps.browser_gate.outcome == 'failure'
-        run: |
-          for mode in none world formations full; do
-            R5_DIAGNOSTIC_ONLY=1 R5_DIAGNOSTIC_SCENE_MODE="$mode" node scripts/probe-r5-bg0-runtime.mjs
-          done
       - name: Upload runtime evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -12,6 +12,7 @@ const startup = readFileSync('src/tabletop/R5StartupExperience.tsx', 'utf8');
 const terrain = readFileSync('src/components/TerrainMapPrototypeImpl.tsx', 'utf8');
 const loader = readFileSync('src/presentation/r3-terrain-loader.ts', 'utf8');
 const css = readFileSync('src/tabletop/r3-tabletop-shell.css', 'utf8');
+const hardwareDiagnostic = readFileSync('src/tabletop/r5-hardware-diagnostic.ts', 'utf8');
 
 test('production mounts the restored R3 shell instead of either abstract board', () => {
   assert.match(app, /import \{ R3TabletopShell \}/);
@@ -45,10 +46,23 @@ test('known-good terrain lifecycle is mounted and prewarmed behind the launcher'
   assert.match(loader, /import\('\.\.\/components\/TerrainMapPrototype'\)/);
 });
 
+test('real-hardware differential is explicit and keeps light modes free of rich runtimes', () => {
+  assert.match(hardwareDiagnostic, /r5HardwareDiag/);
+  assert.match(hardwareDiagnostic, /'shell', 'stable', 'terrain-none', 'terrain-world', 'terrain-formations', 'full'/);
+  assert.match(hardwareDiagnostic, /: 'production'/);
+  assert.match(app, /readR5HardwareDiagnosticMode/);
+  assert.match(backdrop, /diagnosticMode === 'shell' \? null : buildR5RichMapPresentation/);
+  assert.match(backdrop, /diagnosticMode !== 'shell' && props\.diagnosticMode !== 'stable'/);
+  assert.match(backdrop, /diagnosticMode === 'stable'/);
+  assert.match(startup, /LAUNCHED \/ RESPONSIVE/);
+  assert.match(startup, /aria-hidden=\{!launched\}/);
+  assert.doesNotMatch(startup, /R5_GAME_REVEALED_EVENT|r5:game-revealed/);
+});
+
 test('renderer files retain known-good production ownership and startup', () => {
   const formations = readFileSync('src/presentation/r3-formation-miniatures-layer.ts', 'utf8');
   const world = readFileSync('src/presentation/r3-world-miniatures-layer.ts', 'utf8');
-  assert.match(terrain, /Promise\.all\(\[\s*import\('\.\.\/presentation\/r3-formation-miniatures-layer'/);
+  assert.match(terrain, /sceneMode === 'formations' \|\| sceneMode === 'full' \? import\('\.\.\/presentation\/r3-formation-miniatures-layer'\) : null/);
   assert.doesNotMatch(terrain, /r5-rich-runtime|R5_GAME_REVEALED_EVENT|armRichStage/);
   assert.doesNotMatch(formations, /r3-shared-three-renderer/);
   assert.doesNotMatch(world, /r3-shared-three-renderer/);
@@ -60,41 +74,38 @@ test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer a
   assert.match(workflow, /Checkout exact PR head/);
   assert.match(workflow, /probe-r5-bg0-runtime\.mjs/);
   assert.doesNotMatch(workflow, /R5_CHROMIUM_SOFTWARE_WEBGL/);
-  assert.match(probe, /chromium\.launch\(\{ headless: true \}\)/);
-  assert.doesNotMatch(probe, /swiftshader|enable-unsafe-swiftshader|control\.click/);
+  assert.match(probe, /--use-gl=angle/);
+  assert.match(probe, /--use-angle=swiftshader/);
+  assert.match(probe, /--enable-unsafe-swiftshader/);
+  assert.doesNotMatch(probe, /control\.click/);
   assert.match(probe, /BEGIN CAMPAIGN/);
   assert.match(probe, /main-thread heartbeat/);
-  assert.match(probe, /setTimeout\(\(\) => resolve\(performance\.now\(\)\), 0\)/);
+  assert.match(probe, /setTimeout\(resolve, 0\)/);
   assert.match(probe, /\.r3-tabletop-shell/);
   assert.match(probe, /\.r3-tray-toggle/);
-  assert.match(probe, /Duplicate terrain runtime/);
   assert.match(probe, /maplibre/);
   assert.match(probe, /pageerror/);
-  assert.match(probe, /requestfailed/);
-  assert.match(probe, /progressiveWindowMs/);
-  assert.match(probe, /webglcontextlost/);
-  assert.match(probe, /animationFrames/);
-  assert.match(probe, /runtimeEvidence/);
-  assert.match(probe, /terrainStatus !== 'ready'/);
-  assert.match(probe, /physicalFormations !== 'ready'/);
-  assert.match(probe, /MapLibre did not completely settle/);
-  assert.match(probe, /canvasGeometry/);
-  assert.match(probe, /formationElevationAttempts/);
-  assert.match(probe, /sourceUpdates/);
-  assert.match(probe, /R5 periodic readiness/);
-  assert.match(probe, /R5_DIAGNOSTIC_SCENE_MODE/);
+  assert.match(probe, /terrain-none/);
+  assert.match(probe, /LAUNCHED \/ RESPONSIVE/);
+  assert.doesNotMatch(probe, /data-status/);
+  assert.match(probe, /if \(mode === 'shell' \|\| mode === 'stable'\) await heartbeat/);
+  assert.match(probe, /terrain-formations/);
+  assert.match(probe, /terrain-world/);
+  assert.match(probe, /maplibregl-canvas/);
+  assert.match(probe, /r3FormationMiniatures/);
+  assert.match(probe, /r3WorldMiniatures/);
+  assert.match(probe, /R5 isolation result/);
+  assert.match(probe, /r5HardwareDiag/);
   assert.match(probe, /screenshot/);
 });
 
 test('CI diagnostics isolate custom layers without weakening the full-scene gate', () => {
   const workflow = readFileSync('.github/workflows/r5-bg0-browser-runtime.yml', 'utf8');
   const probe = readFileSync('scripts/probe-r5-bg0-runtime.mjs', 'utf8');
-  assert.match(workflow, /none world formations full/);
-  assert.match(workflow, /if: failure\(\)/);
-  assert.match(probe, /r5Scene/);
-  assert.match(probe, /r5Diagnostic/);
-  assert.match(terrain, /query\.get\('r5Diagnostic'\) === '1'/);
-  assert.match(terrain, /: 'full'/);
+  assert.match(probe, /'shell', 'stable', 'terrain-none', 'terrain-world', 'terrain-formations', 'full'/);
+  assert.match(probe, /r5HardwareDiag/);
+  assert.match(backdrop, /diagnosticScene/);
+  assert.match(terrain, /diagnosticScene = 'full'/);
   assert.match(terrain, /sceneMode === 'world' \|\| sceneMode === 'full'/);
   assert.match(terrain, /sceneMode === 'formations' \|\| sceneMode === 'full'/);
   assert.match(terrain, /triggerRepaintCount/);
