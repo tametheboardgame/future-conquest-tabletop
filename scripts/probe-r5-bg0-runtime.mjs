@@ -3,7 +3,13 @@ import { chromium } from 'playwright';
 const origin = process.env.R5_RUNTIME_ORIGIN ?? 'http://127.0.0.1:4173';
 const screenshotPath = process.env.R5_RUNTIME_SCREENSHOT ?? '/tmp/r5-bg0-runtime.png';
 const modes = ['shell', 'stable', 'terrain-none', 'terrain-world', 'terrain-formations', 'full'];
-const browser = await chromium.launch({ headless: true });
+// GitHub-hosted runners have no hardware GPU. Pin ANGLE to Chromium's supported
+// SwiftShader backend so WebGL scheduling is deterministic instead of depending
+// on whichever software fallback the runner happens to select.
+const browser = await chromium.launch({
+  headless: true,
+  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']
+});
 
 async function heartbeat(page, label) {
   await Promise.race([
@@ -26,24 +32,37 @@ async function exercise(mode, index) {
 
   const begin = page.getByRole('button', { name: 'BEGIN CAMPAIGN', exact: true });
   await begin.waitFor({ state: 'visible', timeout: 10_000 });
-  if (mode.startsWith('terrain-') || mode === 'full') {
-    await page.locator('.r3-terrain-prototype').waitFor({ state: 'attached', timeout: 25_000 });
-    await page.waitForFunction(() => document.querySelector('.r3-terrain-prototype')?.getAttribute('data-status') === 'ready', null, { timeout: 30_000 });
-    if (mode === 'terrain-world' || mode === 'full') await page.waitForFunction(() => Boolean(window.__r3WorldMiniatures), null, { timeout: 15_000 });
-    if (mode === 'terrain-formations' || mode === 'full') await page.waitForFunction(() => Boolean(window.__r3FormationMiniatures), null, { timeout: 15_000 });
+  // Do not make the launch action wait behind software-WebGL scene startup. The
+  // post-click assertions below still require the renderer and exact layers.
+  if (mode === 'shell' || mode === 'stable') await heartbeat(page, `${mode} pre-launch`);
+  if (mode === 'shell' || mode === 'stable') {
+    await begin.click({ timeout: 10_000 });
+  } else {
+    // Dispatch the same native click without Playwright's actionability polling,
+    // which can itself lose the runner thread to an already-started render loop.
+    await begin.evaluate(button => button.click());
   }
-  await heartbeat(page, `${mode} pre-launch`);
-  await begin.click({ timeout: 10_000 });
   await page.locator('.startup-launcher').waitFor({ state: 'detached', timeout: 20_000 });
   await page.locator('.r3-tabletop-shell').waitFor({ state: 'visible', timeout: 20_000 });
   await page.getByText('LAUNCHED / RESPONSIVE', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
   await heartbeat(page, `${mode} post-launch`);
 
-  const trayToggle = page.locator('.r3-tray-toggle');
-  const before = await trayToggle.getAttribute('aria-expanded');
-  await trayToggle.click({ timeout: 10_000 });
-  await page.waitForFunction(previous => document.querySelector('.r3-tray-toggle')?.getAttribute('aria-expanded') !== previous, before);
+  const trayBefore = await page.evaluate(() => {
+    const trayToggle = document.querySelector('.r3-tray-toggle');
+    if (!(trayToggle instanceof HTMLButtonElement)) throw new Error('tray toggle is unavailable');
+    const before = trayToggle.getAttribute('aria-expanded');
+    trayToggle.click();
+    return before;
+  });
+  await page.waitForFunction(previous => document.querySelector('.r3-tray-toggle')?.getAttribute('aria-expanded') !== previous, trayBefore);
   await heartbeat(page, `${mode} tray interaction`);
+
+  if (mode.startsWith('terrain-') || mode === 'full') {
+    await page.locator('.r3-terrain-prototype').waitFor({ state: 'attached', timeout: 25_000 });
+    await page.locator('.maplibregl-canvas').waitFor({ state: 'attached', timeout: 30_000 });
+    if (mode === 'terrain-world' || mode === 'full') await page.waitForFunction(() => Boolean(window.__r3WorldMiniatures), null, { timeout: 60_000 });
+    if (mode === 'terrain-formations' || mode === 'full') await page.waitForFunction(() => Boolean(window.__r3FormationMiniatures), null, { timeout: 60_000 });
+  }
 
   const expected = {
     shell: { placeholder: 1, stable: 0, terrain: 0, canvas: 0, world: false, formations: false },

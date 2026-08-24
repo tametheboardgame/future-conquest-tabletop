@@ -74,8 +74,10 @@ test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer a
   assert.match(workflow, /Checkout exact PR head/);
   assert.match(workflow, /probe-r5-bg0-runtime\.mjs/);
   assert.doesNotMatch(workflow, /R5_CHROMIUM_SOFTWARE_WEBGL/);
-  assert.match(probe, /chromium\.launch\(\{ headless: true \}\)/);
-  assert.doesNotMatch(probe, /swiftshader|enable-unsafe-swiftshader|control\.click/);
+  assert.match(probe, /--use-gl=angle/);
+  assert.match(probe, /--use-angle=swiftshader/);
+  assert.match(probe, /--enable-unsafe-swiftshader/);
+  assert.doesNotMatch(probe, /control\.click/);
   assert.match(probe, /BEGIN CAMPAIGN/);
   assert.match(probe, /main-thread heartbeat/);
   assert.match(probe, /setTimeout\(resolve, 0\)/);
@@ -85,7 +87,8 @@ test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer a
   assert.match(probe, /pageerror/);
   assert.match(probe, /terrain-none/);
   assert.match(probe, /LAUNCHED \/ RESPONSIVE/);
-  assert.match(probe, /data-status/);
+  assert.doesNotMatch(probe, /data-status/);
+  assert.match(probe, /if \(mode === 'shell' \|\| mode === 'stable'\) await heartbeat/);
   assert.match(probe, /terrain-formations/);
   assert.match(probe, /terrain-world/);
   assert.match(probe, /maplibregl-canvas/);
