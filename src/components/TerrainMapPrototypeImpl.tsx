@@ -64,6 +64,48 @@ export interface TerrainMapPrototypeProps {
 
 type PrototypeStatus = 'initialising' | 'ready' | 'warning';
 
+type TerrainDiagnosticRecord = Record<string, unknown>;
+
+function diagnosticStack(): string[] {
+  return (new Error().stack ?? '').split('\n').slice(2, 8).map(line => line.trim());
+}
+
+function diagnosticArguments(args: unknown[]): unknown[] {
+  return args.map(value => {
+    if (value === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof value)) return value;
+    if (Array.isArray(value)) return { type: 'array', length: value.length };
+    return { type: value?.constructor?.name ?? typeof value };
+  });
+}
+
+function cameraDiagnosticSnapshot(map: Map): TerrainDiagnosticRecord {
+  const center = map.getCenter();
+  const padding = map.getPadding();
+  return {
+    center: [center.lng, center.lat],
+    zoom: map.getZoom(),
+    pitch: map.getPitch(),
+    bearing: map.getBearing(),
+    padding: { top: padding.top, right: padding.right, bottom: padding.bottom, left: padding.left }
+  };
+}
+
+function elementDiagnosticGeometry(element: Element | null): TerrainDiagnosticRecord | null {
+  if (!(element instanceof HTMLElement)) return null;
+  const bounds = element.getBoundingClientRect();
+  const style = getComputedStyle(element);
+  return {
+    width: bounds.width,
+    height: bounds.height,
+    clientWidth: element.clientWidth,
+    clientHeight: element.clientHeight,
+    display: style.display,
+    position: style.position,
+    transform: style.transform,
+    devicePixelRatio: window.devicePixelRatio
+  };
+}
+
 interface TerrainSourceResolution {
   source: RasterDEMSourceSpecification;
   label: string;
@@ -555,6 +597,7 @@ export function TerrainMapPrototypeImpl({
     let disposed = false;
     let ownedMap: Map | null = null;
     let toolbarResizeObserver: ResizeObserver | null = null;
+    let toolbarMutationObserver: MutationObserver | null = null;
     let cancelOperationalLayoutFrame: (() => void) | undefined;
     let diagnosticTimers: number[] = [];
 
@@ -604,7 +647,7 @@ export function TerrainMapPrototypeImpl({
         && diagnosticSceneModes.some(mode => mode === requestedSceneMode)
         ? requestedSceneMode as typeof diagnosticSceneModes[number]
         : 'full';
-      const diagnostics = diagnosticWindow.__r3TerrainDiagnostics = {
+      const diagnostics: TerrainDiagnosticRecord = diagnosticWindow.__r3TerrainDiagnostics = {
         sceneMode,
         mapConstructCount: Number(diagnosticWindow.__r3TerrainDiagnostics?.mapConstructCount ?? 0) + 1,
         triggerRepaintCount: 0,
@@ -614,20 +657,82 @@ export function TerrainMapPrototypeImpl({
         paddingRequestCount: 0,
         paddingSkippedCount: 0,
         paddingHistory: [],
-        terrainMutationCount: 0
+        terrainMutationCount: 0,
+        cameraMutationHistory: [],
+        transformEventHistory: [],
+        sourceCacheHistory: [],
+        toolbarLifecycle: [],
+        firstCampaignFrontsReload: null
       };
+      const boundedPush = (key: string, value: TerrainDiagnosticRecord, limit = 80) => {
+        const history = diagnostics[key] as TerrainDiagnosticRecord[];
+        history.push(value);
+        if (history.length > limit) history.shift();
+      };
+      const layoutSnapshot = () => ({
+        toolbar: elementDiagnosticGeometry(toolbarRef.current),
+        prototype: elementDiagnosticGeometry(containerRef.current?.parentElement ?? null),
+        container: elementDiagnosticGeometry(containerRef.current),
+        canvasContainer: elementDiagnosticGeometry(containerRef.current?.querySelector('.maplibregl-canvas-container') ?? null),
+        canvas: elementDiagnosticGeometry(map.getCanvas()),
+        canvasBacking: { width: map.getCanvas().width, height: map.getCanvas().height }
+      });
+      const mutationMethods = [
+        'jumpTo', 'easeTo', 'flyTo', 'setCenter', 'setZoom', 'setPitch',
+        'setBearing', 'fitBounds', 'setPadding', 'resize'
+      ] as const;
+      for (const methodName of mutationMethods) {
+        const instrumentedMap = map as unknown as Record<string, unknown>;
+        const nativeMethod = instrumentedMap[methodName];
+        if (typeof nativeMethod !== 'function') continue;
+        instrumentedMap[methodName] = (...args: unknown[]) => {
+          const before = cameraDiagnosticSnapshot(map);
+          const result = (nativeMethod as (...values: unknown[]) => unknown).apply(map, args);
+          boundedPush('cameraMutationHistory', {
+            at: Math.round(performance.now()),
+            method: methodName,
+            args: diagnosticArguments(args),
+            before,
+            after: cameraDiagnosticSnapshot(map),
+            caller: diagnosticStack(),
+            layout: layoutSnapshot()
+          });
+          return result;
+        };
+      }
       const nativeTriggerRepaint = map.triggerRepaint.bind(map);
       map.triggerRepaint = () => {
         diagnostics.triggerRepaintCount = Number(diagnostics.triggerRepaintCount) + 1;
         return nativeTriggerRepaint();
       };
       map.on('render', () => { diagnostics.renderCount = Number(diagnostics.renderCount) + 1; });
-      map.on('resize', () => { diagnostics.resizeCount = Number(diagnostics.resizeCount) + 1; });
+      map.on('resize', event => {
+        diagnostics.resizeCount = Number(diagnostics.resizeCount) + 1;
+        boundedPush('transformEventHistory', { at: Math.round(performance.now()), type: event.type, camera: cameraDiagnosticSnapshot(map), layout: layoutSnapshot() });
+      });
+      for (const eventName of ['movestart', 'move', 'moveend', 'zoomstart', 'zoom', 'zoomend', 'pitchstart', 'pitch', 'pitchend', 'rotatestart', 'rotate', 'rotateend'] as const) {
+        map.on(eventName, event => boundedPush('transformEventHistory', {
+          at: Math.round(performance.now()), type: event.type, camera: cameraDiagnosticSnapshot(map)
+        }));
+      }
       const host = containerRef.current.parentElement;
       map.on('movestart', () => { if (host) host.dataset.mapMoving = 'true'; });
       map.on('moveend', () => { if (host) host.dataset.mapMoving = 'false'; });
       map.on('idle', () => { if (host) host.dataset.mapIdleAt = String(performance.now()); });
       map.addControl(new NavigationControl({ visualizePitch: presentationProfile === 'full' }), 'top-right');
+
+      toolbarMutationObserver = new MutationObserver(records => boundedPush('toolbarLifecycle', {
+        at: Math.round(performance.now()),
+        cause: 'dom-mutation',
+        status: containerRef.current?.parentElement?.dataset.status ?? null,
+        message: toolbarRef.current?.querySelector('[aria-live="polite"]')?.textContent ?? null,
+        mutations: records.map(record => ({ type: record.type, attributeName: record.attributeName })),
+        layout: layoutSnapshot()
+      }));
+      if (toolbarRef.current) toolbarMutationObserver.observe(toolbarRef.current.parentElement ?? toolbarRef.current, {
+        subtree: true, childList: true, characterData: true, attributes: true,
+        attributeFilter: ['class', 'data-status', 'style']
+      });
 
       const applySafePadding = (reason: 'initial' | 'toolbar-resize-observer') => {
         const padding = terrainViewportPadding(toolbarRef.current, presentationProfile);
@@ -659,9 +764,86 @@ export function TerrainMapPrototypeImpl({
       };
       applySafePadding('initial');
       if (typeof ResizeObserver !== 'undefined' && toolbarRef.current) {
-        toolbarResizeObserver = new ResizeObserver(() => applySafePadding('toolbar-resize-observer'));
+        toolbarResizeObserver = new ResizeObserver(entries => {
+          boundedPush('toolbarLifecycle', {
+            at: Math.round(performance.now()),
+            cause: 'resize-observer',
+            entries: entries.map(entry => ({ width: entry.contentRect.width, height: entry.contentRect.height })),
+            status: containerRef.current?.parentElement?.dataset.status ?? null,
+            layout: layoutSnapshot()
+          });
+          applySafePadding('toolbar-resize-observer');
+        });
         toolbarResizeObserver.observe(toolbarRef.current);
       }
+
+      const instrumentedSourceCaches = new WeakSet<object>();
+      const campaignFrontsState = () => {
+        const internalStyle = (map as unknown as { style?: Record<string, unknown> }).style;
+        const caches = (internalStyle?.tileManagers ?? internalStyle?._sourceCaches ?? internalStyle?.sourceCaches) as Record<string, Record<string, unknown>> | undefined;
+        const matching = Object.entries(caches ?? {}).filter(([id]) => id.includes('campaign-fronts'));
+        return matching.map(([id, cache]) => {
+          const inViewTiles = cache._inViewTiles as { getAllTiles?: () => Array<{ state?: string }> } | undefined;
+          const tiles = inViewTiles?.getAllTiles?.() ?? Object.values(cache._tiles as Record<string, { state?: string }> ?? {});
+          return {
+            id,
+            loaded: typeof cache.loaded === 'function' ? (cache.loaded as () => boolean)() : null,
+            tileStates: tiles.reduce<Record<string, number>>((counts, tile) => {
+              const tileState = tile.state ?? 'unknown';
+              counts[tileState] = (counts[tileState] ?? 0) + 1;
+              return counts;
+            }, {})
+          };
+        });
+      };
+      let campaignFrontsWasLoaded = false;
+      const inspectCampaignFronts = (reason: string) => {
+        const state = campaignFrontsState();
+        const loaded = state.length > 0 && state.every(cache => cache.loaded === true);
+        if (campaignFrontsWasLoaded && !loaded && diagnostics.firstCampaignFrontsReload === null) {
+          const internal = map as unknown as Record<string, unknown>;
+          const internalStyle = internal.style as Record<string, unknown> | undefined;
+          diagnostics.firstCampaignFrontsReload = {
+            at: Math.round(performance.now()), reason, state,
+            camera: cameraDiagnosticSnapshot(map), layout: layoutSnapshot(),
+            dirtyFlags: Object.fromEntries(['_styleDirty', '_sourcesDirty', '_repaint', '_loaded'].map(key => [key, internal[key] ?? null])),
+            styleFlags: internalStyle ? Object.fromEntries(['_loaded', '_changed', '_layerOrderChanged', '_updatedSources'].map(key => [key, internalStyle[key] instanceof Set ? [...internalStyle[key] as Set<unknown>] : internalStyle[key] ?? null])) : null,
+            cameraMutationHistory: [...diagnostics.cameraMutationHistory as TerrainDiagnosticRecord[]],
+            sourceCacheHistory: [...diagnostics.sourceCacheHistory as TerrainDiagnosticRecord[]],
+            toolbarLifecycle: [...diagnostics.toolbarLifecycle as TerrainDiagnosticRecord[]]
+          };
+          console.info('R3 campaign-fronts first reload diagnostic', JSON.stringify(diagnostics.firstCampaignFrontsReload));
+        }
+        campaignFrontsWasLoaded ||= loaded;
+      };
+      const instrumentCampaignFrontsCache = () => {
+        const internalStyle = (map as unknown as { style?: Record<string, unknown> }).style;
+        const caches = (internalStyle?.tileManagers ?? internalStyle?._sourceCaches ?? internalStyle?.sourceCaches) as Record<string, Record<string, unknown>> | undefined;
+        for (const [id, cache] of Object.entries(caches ?? {})) {
+          if (!id.includes('campaign-fronts') || instrumentedSourceCaches.has(cache)) continue;
+          instrumentedSourceCaches.add(cache);
+          for (const methodName of ['reload', 'update', 'load', 'resume', 'setTransform'] as const) {
+            const nativeMethod = cache[methodName];
+            if (typeof nativeMethod !== 'function') continue;
+            cache[methodName] = (...args: unknown[]) => {
+              const before = campaignFrontsState();
+              const result = (nativeMethod as (...values: unknown[]) => unknown).apply(cache, args);
+              boundedPush('sourceCacheHistory', {
+                at: Math.round(performance.now()), sourceCache: id, method: methodName, args: diagnosticArguments(args),
+                before, after: campaignFrontsState(), camera: cameraDiagnosticSnapshot(map),
+                dirty: { mapStyle: (map as unknown as Record<string, unknown>)._styleDirty ?? null, mapSources: (map as unknown as Record<string, unknown>)._sourcesDirty ?? null },
+                caller: diagnosticStack()
+              });
+              return result;
+            };
+          }
+        }
+      };
+      map.on('sourcedata', event => {
+        instrumentCampaignFrontsCache();
+        if (event.sourceId === 'campaign-fronts') inspectCampaignFronts(`sourcedata:${event.sourceDataType ?? 'unknown'}`);
+      });
+      map.on('render', () => inspectCampaignFronts('render'));
       let terrainMeshMode: 'physical' | 'strategic-flat' = 'physical';
       const updateOverlayLod = () => {
         const host = containerRef.current?.parentElement;
@@ -734,6 +916,13 @@ export function TerrainMapPrototypeImpl({
           if (host) host.dataset.physicalFormations = 'fallback';
         }
         loadedRef.current = true;
+        boundedPush('toolbarLifecycle', {
+          at: Math.round(performance.now()),
+          cause: 'map-load-react-status-transition',
+          from: { status: 'initialising', message: 'Initialising continuous terrain…' },
+          to: { status: 'ready', message: `${terrainSource.label} · ${presentationProfile === 'compact' ? 'compact terrain' : 'continuous relief'} · operational overlays projected from campaign state` },
+          layoutBeforeReactCommit: layoutSnapshot()
+        });
         setStatus('ready');
         setMessage(`${terrainSource.label} · ${presentationProfile === 'compact' ? 'compact terrain' : 'continuous relief'} · operational overlays projected from campaign state`);
       });
@@ -840,6 +1029,7 @@ export function TerrainMapPrototypeImpl({
       formationMiniaturesRef.current = null;
       worldMiniaturesRef.current = null;
       toolbarResizeObserver?.disconnect();
+      toolbarMutationObserver?.disconnect();
       cancelOperationalLayoutFrame?.();
       mapRef.current = null;
       delete (window as typeof window & { __r3TerrainMap?: Map }).__r3TerrainMap;

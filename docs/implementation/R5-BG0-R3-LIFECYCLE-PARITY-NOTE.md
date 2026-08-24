@@ -31,3 +31,21 @@ request (initial or toolbar observer), the old and proposed values, whether it w
 applied or skipped, and the toolbar/container dimensions. Camera-preset mutations
 are recorded separately. This keeps production geometry and camera behavior while
 preventing an equivalent late observer notification from retiling `campaign-fronts`.
+
+Exact-head run `32741813999` falsified that final causal hypothesis: the late
+observer request was skipped, the effective padding and container geometry stayed
+unchanged, and `campaign-fronts` still reloaded by itself. The toolbar contraction
+is the existing production responsive rule for the React `initialising` → `ready`
+transition (the status copy is hidden and only controls remain); the R5 stylesheet
+only relocates that absolutely positioned overlay. The MapLibre style construction
+for `campaign-fronts` also matches production: one default GeoJSON source, with no
+R5-only clustering, buffering, tolerance, line metrics, or zoom options.
+
+The follow-up diagnostics therefore observe rather than mutate the renderer. Every
+public camera/transform entry point records arguments, caller, and complete camera
+state before/after; MapLibre movement and resize events record internal transform
+activity; and the `campaign-fronts` source cache records reload/update/load calls.
+The first loaded-to-reloading transition immediately captures dirty flags, camera,
+layout/DPR/canvas geometry, toolbar lifecycle, and the preceding camera/source-cache
+histories. This distinguishes covering-tile camera changes, source/style mutation,
+and browser geometry updates without weakening the strict production gate.
