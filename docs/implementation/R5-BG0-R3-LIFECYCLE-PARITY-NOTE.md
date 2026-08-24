@@ -15,3 +15,9 @@ Golden baseline: `tametheboardgame/future-conquest` `main` at `e6440635e7d85924f
 | Three ownership | Each production custom layer owns its Three renderer and original elevation sampling behavior. | R5 added a shared-renderer lease and throttled model/elevation setup. | World and formation layer files are transplanted exactly; the R5 shared helper is removed. |
 
 The retained differences are deliberately narrow: `R5StartupExperience` supplies the existing global-settings context while preserving the R5 launcher/audio presentation, and `RichMapBackdrop` adapts R5 authoritative state and selection callbacks into the legacy presentation props. R5 action dispatch, combat, saves, and PRNG remain outside the renderer and authoritative.
+
+## Current BG0 settlement instrumentation
+
+The exact-head gate keeps the production acceptance contract: plain Chromium and real pointer actions must reach `ready`, physical formations must render, MapLibre must report its map/style/tiles loaded, and the canvas must have usable geometry before the 60-second interaction window passes. The probe records pre-launch, post-launch, and ready host geometry plus time-series renderer/map counts and miniature/source activity; warning or fallback output is diagnostic only.
+
+Elevation sampling is the sole intentional renderer-level safety bound. Formation and world layers defer DEM reads until terrain reports loaded, admit at most one query per frame, and retain null-attempt timing so the R5 scene cannot turn unavailable DEM data into a synchronous readback storm. Renderer ownership, startup, and R5 gameplay authority remain unchanged.
