@@ -129,10 +129,16 @@ try {
   const trayToggle = page.locator('.r3-tray-toggle');
 
   const terrain = page.locator('.r3-terrain-prototype');
-  const ready = page.locator('.r3-terrain-prototype[data-status="ready"]');
-  await ready.waitFor({ state: 'visible', timeout: Math.max(1, readinessDeadline - Date.now()) });
-  await page.waitForFunction(() => document.querySelector('.r3-terrain-prototype')?.getAttribute('data-physical-formations') === 'ready', null, { timeout: 15_000 });
-  await page.waitForFunction(() => (window.__r3FormationMiniatures?.renderCount ?? 0) > 0, null, { timeout: 10_000 });
+  await page.waitForFunction(() => {
+    const host = document.querySelector('.r3-terrain-prototype');
+    const map = window.__r3TerrainMap;
+    return host?.getAttribute('data-status') === 'ready'
+      && host.getAttribute('data-physical-formations') === 'ready'
+      && (window.__r3FormationMiniatures?.renderCount ?? 0) > 0
+      && map?.loaded() === true
+      && map.isStyleLoaded() === true
+      && map.areTilesLoaded() === true;
+  }, null, { timeout: Math.max(1, readinessDeadline - Date.now()) });
   const rendererCount = await terrain.count();
   const canvasCount = await page.locator('.maplibregl-canvas').count();
   if (rendererCount > 1 || canvasCount > 1) throw new Error(`Duplicate terrain runtime: ${rendererCount} renderer(s), ${canvasCount} canvas(es)`);
@@ -141,8 +147,8 @@ try {
   // model loading and delayed/idle callbacks rather than accepting first paint.
   const progressiveStarted = Date.now();
   let heartbeatSamples = 0;
-  while (Date.now() - progressiveStarted < progressiveWindowMs) {
-    await page.waitForTimeout(Math.min(1_000, progressiveWindowMs - (Date.now() - progressiveStarted)));
+  while (Date.now() - progressiveStarted < progressiveWindowMs || heartbeatSamples < 60) {
+    await page.waitForTimeout(1_000);
     await heartbeat(`progressive-${++heartbeatSamples}`, 2_500);
     const counts = await page.evaluate(() => ({
       canvases: document.querySelectorAll('.maplibregl-canvas').length,
@@ -167,10 +173,16 @@ try {
     await page.mouse.up();
     await page.mouse.wheel(0, -180);
     await heartbeat('map-interaction');
-    await page.waitForTimeout(500);
+    const resettleStarted = performance.now();
+    await page.waitForFunction(() => {
+      const map = window.__r3TerrainMap;
+      return map?.loaded() === true && map.isStyleLoaded() === true && map.areTilesLoaded() === true;
+    }, null, { timeout: 15_000, polling: 50 });
+    const resettleDurationMs = Math.round(performance.now() - resettleStarted);
+    console.log(`R5 post-interaction resettle: ${resettleDurationMs}ms`);
     const after = await page.evaluate(() => window.__r3TerrainMap?.getCenter().toArray() ?? null);
     if (JSON.stringify(before) === JSON.stringify(after)) throw new Error('Map pan did not change its camera centre.');
-    interaction = { mode: 'maplibre', before, after };
+    interaction = { mode: 'maplibre', before, after, resettleDurationMs };
   } else {
     throw new Error(`Ready production terrain has ${canvasCount} MapLibre canvases.`);
   }
