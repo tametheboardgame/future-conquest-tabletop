@@ -7,6 +7,8 @@ const pageErrors = [];
 const requestFailures = [];
 const consoleErrors = [];
 const progressiveWindowMs = Number(process.env.R5_RUNTIME_PROGRESSIVE_WINDOW_MS ?? 60_000);
+const sceneMode = process.env.R5_DIAGNOSTIC_SCENE_MODE ?? 'full';
+const diagnosticOnly = process.env.R5_DIAGNOSTIC_ONLY === '1';
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
@@ -64,7 +66,9 @@ const heartbeat = async (label, timeout = 2_000) => {
 
 
 try {
-  await page.goto(origin, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  const runtimeUrl = new URL(origin);
+  runtimeUrl.searchParams.set('r5Scene', sceneMode);
+  await page.goto(runtimeUrl.href, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   const begin = page.getByRole('button', { name: 'BEGIN CAMPAIGN', exact: true });
   await begin.waitFor({ state: 'visible', timeout: 10_000 });
   await page.locator('.r5-rich-map').waitFor({ state: 'attached', timeout: 10_000 });
@@ -76,6 +80,40 @@ try {
   await page.locator('.startup-launcher').waitFor({ state: 'detached', timeout: 5_000 });
   await page.locator('.r3-tabletop-shell').waitFor({ state: 'visible', timeout: 5_000 });
   await heartbeat('post-launch');
+
+  const readinessSnapshot = () => page.evaluate(() => {
+    const geometry = selector => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement)) return null;
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return { width: rect.width, height: rect.height, display: style.display, visibility: style.visibility };
+    };
+    return {
+      elapsed: Math.round(performance.now() - window.__r5RuntimeEvidence.startedAt),
+      mapLoaded: window.__r3TerrainMap?.loaded() ?? null,
+      styleLoaded: window.__r3TerrainMap?.isStyleLoaded() ?? null,
+      tilesLoaded: window.__r3TerrainMap?.areTilesLoaded() ?? null,
+      sourceUpdates: window.__r3TerrainSourceUpdates ?? null,
+      terrainDiagnostics: window.__r3TerrainDiagnostics ?? null,
+      formation: window.__r3FormationMiniatures ? { pieces: window.__r3FormationMiniatures.pieces.length, renders: window.__r3FormationMiniatures.renderCount, attempts: window.__r3FormationMiniatures.elevationSampleAttempts, nulls: window.__r3FormationMiniatures.elevationNullSamples } : null,
+      world: window.__r3WorldMiniatures ? { pieces: window.__r3WorldMiniatures.objects.length, renders: window.__r3WorldMiniatures.renderCount, attempts: window.__r3WorldMiniatures.elevationSampleAttempts, nulls: window.__r3WorldMiniatures.elevationNullSamples } : null,
+      geometry: Object.fromEntries(['.r3-terrain-prototype', '.r3-terrain-prototype-canvas', '.maplibregl-canvas-container', '.maplibregl-canvas'].map(selector => [selector, geometry(selector)])),
+      contexts: document.querySelectorAll('.maplibregl-canvas').length,
+      renderers: document.querySelectorAll('.r3-terrain-prototype').length
+    };
+  });
+  for (const delay of [1_000, 4_000, 5_000, 10_000]) {
+    await page.waitForTimeout(delay);
+    console.log(`R5 periodic readiness ${sceneMode}:`, JSON.stringify(await readinessSnapshot()));
+  }
+  if (diagnosticOnly) {
+    await heartbeat(`diagnostic-${sceneMode}`);
+    console.log(`R5 isolation result ${sceneMode}:`, JSON.stringify(await readinessSnapshot()));
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    await browser.close();
+    process.exit(0);
+  }
 
   const tray = page.locator('.r3-board-tray');
   const trayToggle = page.locator('.r3-tray-toggle');

@@ -553,6 +553,7 @@ export function TerrainMapPrototypeImpl({
     let ownedMap: Map | null = null;
     let toolbarResizeObserver: ResizeObserver | null = null;
     let cancelOperationalLayoutFrame: (() => void) | undefined;
+    let diagnosticTimers: number[] = [];
 
     const initialise = async () => {
       const terrainSource = await loadTerrainSource();
@@ -592,6 +593,24 @@ export function TerrainMapPrototypeImpl({
         __r3StrategicNodes: STRATEGIC_NODES,
         __r3TerritoryCentres: terrainOperationalTerritoryCentres
       });
+      const diagnosticWindow = window as typeof window & { __r3TerrainDiagnostics?: Record<string, unknown> };
+      const sceneMode = new URLSearchParams(window.location.search).get('r5Scene') ?? 'full';
+      const diagnostics = diagnosticWindow.__r3TerrainDiagnostics = {
+        sceneMode,
+        mapConstructCount: Number(diagnosticWindow.__r3TerrainDiagnostics?.mapConstructCount ?? 0) + 1,
+        triggerRepaintCount: 0,
+        renderCount: 0,
+        resizeCount: 0,
+        paddingCount: 0,
+        terrainMutationCount: 0
+      };
+      const nativeTriggerRepaint = map.triggerRepaint.bind(map);
+      map.triggerRepaint = () => {
+        diagnostics.triggerRepaintCount = Number(diagnostics.triggerRepaintCount) + 1;
+        return nativeTriggerRepaint();
+      };
+      map.on('render', () => { diagnostics.renderCount = Number(diagnostics.renderCount) + 1; });
+      map.on('resize', () => { diagnostics.resizeCount = Number(diagnostics.resizeCount) + 1; });
       const host = containerRef.current.parentElement;
       map.on('movestart', () => { if (host) host.dataset.mapMoving = 'true'; });
       map.on('moveend', () => { if (host) host.dataset.mapMoving = 'false'; });
@@ -599,6 +618,7 @@ export function TerrainMapPrototypeImpl({
       map.addControl(new NavigationControl({ visualizePitch: presentationProfile === 'full' }), 'top-right');
 
       const applySafePadding = () => {
+        diagnostics.paddingCount = Number(diagnostics.paddingCount) + 1;
         map.setPadding(terrainViewportPadding(toolbarRef.current, presentationProfile));
       };
       applySafePadding();
@@ -630,6 +650,7 @@ export function TerrainMapPrototypeImpl({
               ? terrainExaggerationForProfile(presentationProfile)
               : 0
           });
+          diagnostics.terrainMutationCount = Number(diagnostics.terrainMutationCount) + 1;
           terrainMeshMode = nextMode;
         }
         host.dataset.terrainRelief = terrainMeshMode;
@@ -660,12 +681,16 @@ export function TerrainMapPrototypeImpl({
             import('../presentation/r3-world-miniatures-layer')
           ]);
           if (disposed) return;
-          const worldLayer = new WorldMiniaturesLayer(layersRef.current);
-          map.addLayer(worldLayer);
-          worldMiniaturesRef.current = worldLayer;
-          const miniatureLayer = new FormationMiniaturesLayer(stateRef.current, layersRef.current);
-          map.addLayer(miniatureLayer);
-          formationMiniaturesRef.current = miniatureLayer;
+          if (sceneMode === 'world' || sceneMode === 'full') {
+            const worldLayer = new WorldMiniaturesLayer(layersRef.current);
+            map.addLayer(worldLayer);
+            worldMiniaturesRef.current = worldLayer;
+          }
+          if (sceneMode === 'formations' || sceneMode === 'full') {
+            const miniatureLayer = new FormationMiniaturesLayer(stateRef.current, layersRef.current);
+            map.addLayer(miniatureLayer);
+            formationMiniaturesRef.current = miniatureLayer;
+          }
           if (host) host.dataset.physicalFormations = 'ready';
         } catch (error) {
           // Terrain remains usable through the established DOM formation layer.
@@ -677,7 +702,7 @@ export function TerrainMapPrototypeImpl({
         setMessage(`${terrainSource.label} · ${presentationProfile === 'compact' ? 'compact terrain' : 'continuous relief'} · operational overlays projected from campaign state`);
       });
 
-      window.setTimeout(() => {
+      diagnosticTimers = [1_000, 5_000, 10_000, 20_000].map(delay => window.setTimeout(() => {
         if (disposed || loadedRef.current) return;
         const sourceIds = [
           'r3-wp2b-land',
@@ -689,13 +714,30 @@ export function TerrainMapPrototypeImpl({
           'campaign-strategic-nodes'
         ];
         const sourceLoaded = Object.fromEntries(sourceIds.map(id => [id, map.getSource(id)?.loaded() ?? null]));
-        console.info('R3 terrain readiness diagnostic', JSON.stringify({
+        const canvas = map.getCanvas();
+        const hostRect = host?.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        const internal = map as unknown as Record<string, unknown>;
+        const internalStyle = internal.style as Record<string, unknown> | undefined;
+        const sourceCaches = (internalStyle?._sourceCaches ?? internalStyle?.sourceCaches) as Record<string, Record<string, unknown>> | undefined;
+        console.info(`R3 terrain readiness diagnostic ${delay}ms`, JSON.stringify({
           mapLoaded: map.loaded(),
           styleLoaded: map.isStyleLoaded(),
           tilesLoaded: map.areTilesLoaded(),
-          sourceLoaded
+          sourceLoaded,
+          dirtyFlags: Object.fromEntries(['_styleDirty', '_sourcesDirty', '_repaint', '_loaded'].map(key => [key, internal[key] ?? null])),
+          styleFlags: internalStyle ? Object.fromEntries(['_loaded', '_changed', '_layerOrderChanged', '_updatedSources'].map(key => [key, internalStyle[key] instanceof Set ? [...internalStyle[key] as Set<unknown>] : internalStyle[key] ?? null])) : null,
+          sourceCacheState: sourceCaches ? Object.fromEntries(Object.entries(sourceCaches).map(([id, cache]) => {
+            const tiles = cache._tiles as Record<string, { state?: string }> | undefined;
+            return [id, { loaded: typeof cache.loaded === 'function' ? (cache.loaded as () => boolean)() : null, tileStates: tiles ? Object.values(tiles).reduce<Record<string, number>>((counts, tile) => { const state = tile.state ?? 'unknown'; counts[state] = (counts[state] ?? 0) + 1; return counts; }, {}) : null }];
+          })) : null,
+          diagnostics,
+          sourceUpdates: (window as typeof window & { __r3TerrainSourceUpdates?: unknown }).__r3TerrainSourceUpdates ?? null,
+          formations: (window as typeof window & { __r3FormationMiniatures?: { pieces: unknown[]; renderCount: number } }).__r3FormationMiniatures ?? null,
+          world: (window as typeof window & { __r3WorldMiniatures?: { objects: unknown[]; renderCount: number } }).__r3WorldMiniatures ?? null,
+          geometry: { host: hostRect && { width: hostRect.width, height: hostRect.height }, canvas: { width: canvasRect.width, height: canvasRect.height, backingWidth: canvas.width, backingHeight: canvas.height } }
         }));
-      }, 3000);
+      }, delay));
 
       map.on('error', event => {
         const runtimeError = classifyTerrainRuntimeError(event.error);
@@ -751,6 +793,7 @@ export function TerrainMapPrototypeImpl({
 
     return () => {
       disposed = true;
+      diagnosticTimers.forEach(timer => window.clearTimeout(timer));
       loadedRef.current = false;
       removeTerrainOperationalMarkers(operationalMarkersRef.current);
       operationalMarkersRef.current = [];
