@@ -59,11 +59,13 @@ const heartbeat = async (label, timeout = 2_000) => {
 };
 
 try {
-  const runtimeUrl = new URL(origin);
-  runtimeUrl.searchParams.set('r5RichPath', 'force');
-  await page.goto(runtimeUrl.href, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  await page.goto(origin, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   const begin = page.getByRole('button', { name: 'BEGIN CAMPAIGN', exact: true });
   await begin.waitFor({ state: 'visible', timeout: 10_000 });
+  await page.locator('.r5-rich-map').waitFor({ state: 'attached', timeout: 10_000 });
+  await page.locator('.r3-terrain-prototype, .r3-terrain-prototype-loading').first().waitFor({ state: 'attached', timeout: 25_000 });
+  const preLaunchHostCount = await page.locator('.r5-rich-map').count();
+  if (preLaunchHostCount !== 1) throw new Error(`Terrain host was not mounted behind launcher: ${preLaunchHostCount}`);
   await heartbeat('pre-launch');
   await begin.click({ timeout: 5_000 });
   await page.locator('.startup-launcher').waitFor({ state: 'detached', timeout: 5_000 });
@@ -140,17 +142,10 @@ try {
     styleLoaded: window.__r3TerrainMap?.isStyleLoaded() ?? null,
     tilesLoaded: window.__r3TerrainMap?.areTilesLoaded() ?? null,
     runtimeEvidence: window.__r5RuntimeEvidence ?? null,
-    richRuntime: window.__r5RichRuntime ?? null,
     worldRenderCount: window.__r3WorldMiniatures?.renderCount ?? null,
     formationRenderCount: window.__r3FormationMiniatures?.renderCount ?? null
   }));
   console.log('R5 BG0 runtime diagnostics:', JSON.stringify({ ...diagnostics, interaction, consoleErrors, requestFailures }));
-  if (!diagnostics.richRuntime?.forced) throw new Error('Runtime probe did not exercise the forced rich path.');
-  for (const stage of ['terrain', 'world', 'formations']) {
-    if (!['ready', 'disabled'].includes(diagnostics.richRuntime.states[stage])) {
-      throw new Error(`Rich stage ${stage} did not reach a bounded terminal state: ${diagnostics.richRuntime.states[stage]}`);
-    }
-  }
   await page.screenshot({ path: screenshotPath, fullPage: true });
   if (!fs.existsSync(screenshotPath)) throw new Error('Runtime screenshot was not written.');
   if (pageErrors.length) {

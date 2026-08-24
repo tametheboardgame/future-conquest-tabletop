@@ -22,7 +22,6 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { GameState, TaskGroup } from '../game/types';
-import { acquireR3ThreeRenderer, releaseR3ThreeRenderer } from './r3-shared-three-renderer';
 import { FORMATION_PRESENTATION_ANIMATION_MS, formationForwardPathTarget, formationPresentationPath, formationPresentationPosition, interpolateFormationPresentation, type FormationGeoPoint } from './r3-formation-movement';
 import { terrainOperationalTerritoryCentres, type TerrainOperationalLayers } from './r3-terrain-operational-markers-core';
 
@@ -397,7 +396,6 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
   readonly renderingMode = '3d' as const;
   private map?: Map;
   private renderer?: WebGLRenderer;
-  private context?: WebGL2RenderingContext;
   private readonly camera = new Camera();
   private readonly scene = new Scene();
   private readonly pieces = new globalThis.Map<string, Piece>();
@@ -415,8 +413,8 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
 
   onAdd(map: Map, gl: WebGL2RenderingContext) {
     this.map = map;
-    this.context = gl;
-    this.renderer = acquireR3ThreeRenderer(map.getCanvas(), gl, this.id);
+    this.renderer = new WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true });
+    this.renderer.autoClear = false;
     this.scene.add(new AmbientLight(0xd9f6ee, 1.5));
     const sun = new DirectionalLight(0xfff2d4, 2.4);
     sun.position.set(-3, -4, 8);
@@ -490,23 +488,16 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
     const lod = miniatureLodForZoom(zoom);
     const presentationWithheld = document.documentElement.dataset.r3WithholdFormations === 'true';
     const browserPieces: FormationMiniatureBrowserEvidence['pieces'] = [];
-    // queryTerrainElevation can synchronously enter MapLibre's DEM pipeline.
-    // Sample at most one moving piece per map frame; all others retain their
-    // last safe elevation rather than multiplying hardware readback pressure.
-    let elevationSampleBudget = 1;
     for (const [id, piece] of this.pieces) {
       const elapsed = now - piece.startedAt;
       piece.current = this.reducedMotion ? piece.target : interpolateFormationPresentation(piece.from, piece.target, elapsed);
       animating ||= !this.reducedMotion && elapsed < FORMATION_PRESENTATION_ANIMATION_MS;
       const lngLat: [number, number] = [piece.current[0], piece.current[1]];
-      if (elevationSampleBudget > 0 && needsElevationSample(piece, lngLat)) {
-        elevationSampleBudget -= 1;
+      if (needsElevationSample(piece, lngLat)) {
         const sampledElevation = this.map.queryTerrainElevation(lngLat);
-        // Null is still a completed sample. Retrying the synchronous terrain
-        // readback every render frame while DEM tiles settle can freeze the UI.
-        piece.elevationAt = [...lngLat];
         if (sampledElevation !== null) {
           piece.elevation = sampledElevation;
+          piece.elevationAt = [...lngLat];
         }
       }
       const elevation = piece.elevation ?? 0;
@@ -545,8 +536,7 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
   }
 
   onRemove() {
-    releaseR3ThreeRenderer(this.context, this.id);
-    this.context = undefined;
+    this.renderer?.dispose();
     this.renderer = undefined;
     this.map = undefined;
     for (const piece of this.pieces.values()) disposeMiniature(piece.root);
