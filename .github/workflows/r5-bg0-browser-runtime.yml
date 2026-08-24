@@ -34,6 +34,10 @@ jobs:
           cat /tmp/future-conquest-vite.log
           exit 1
       - name: Exercise R5 campaign launch in Chromium
+        env:
+          # GitHub-hosted runners have no hardware GPU. Pin the same explicit
+          # software WebGL backend used by this headless acceptance probe.
+          R5_CHROMIUM_SOFTWARE_WEBGL: '1'
         run: node scripts/probe-r5-bg0-runtime.mjs
       - name: Upload runtime evidence
         if: always()

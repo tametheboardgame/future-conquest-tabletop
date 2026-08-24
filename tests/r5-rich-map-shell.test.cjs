@@ -59,8 +59,13 @@ test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer a
   const probe = readFileSync('scripts/probe-r5-bg0-runtime.mjs', 'utf8');
   assert.match(workflow, /Checkout exact PR head/);
   assert.match(workflow, /probe-r5-bg0-runtime\.mjs/);
+  assert.match(workflow, /R5_CHROMIUM_SOFTWARE_WEBGL: '1'/);
+  assert.match(probe, /--use-angle=swiftshader/);
+  assert.match(probe, /--enable-unsafe-swiftshader/);
   assert.match(probe, /BEGIN CAMPAIGN/);
   assert.match(probe, /main-thread heartbeat/);
+  assert.match(probe, /setTimeout\(\(\) => resolve\(performance\.now\(\)\), 0\)/);
+  assert.match(probe, /control\.click\(\)/);
   assert.match(probe, /\.r3-tabletop-shell/);
   assert.match(probe, /\.r3-tray-toggle/);
   assert.match(probe, /Duplicate terrain runtime/);

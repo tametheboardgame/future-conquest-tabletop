@@ -8,7 +8,14 @@ const requestFailures = [];
 const consoleErrors = [];
 const progressiveWindowMs = Number(process.env.R5_RUNTIME_PROGRESSIVE_WINDOW_MS ?? 60_000);
 
-const browser = await chromium.launch({ headless: true });
+// GitHub's Linux runners do not expose a hardware GPU. Make their renderer
+// choice explicit instead of depending on Chromium's changing automatic
+// software-WebGL fallback policy. Production remains entirely unaffected.
+const softwareWebgl = process.env.R5_CHROMIUM_SOFTWARE_WEBGL === '1';
+const browser = await chromium.launch({
+  headless: true,
+  args: softwareWebgl ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : []
+});
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 await page.addInitScript(() => {
   const evidence = window.__r5RuntimeEvidence = {
@@ -52,10 +59,22 @@ page.on('requestfailed', request => {
 const heartbeat = async (label, timeout = 2_000) => {
   const started = Date.now();
   await Promise.race([
-    page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now()))))),
+    // A timer task measures the browser JS event loop directly. An rAF-based
+    // pulse can be delayed by headless SwiftShader's continuous MapLibre paint
+    // even while application events remain responsive.
+    page.evaluate(() => new Promise(resolve => setTimeout(() => resolve(performance.now()), 0))),
     new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} main-thread heartbeat exceeded ${timeout}ms`)), timeout))
   ]);
   console.log(`${label} heartbeat: ${Date.now() - started}ms`);
+};
+
+const activate = async (selector, label) => {
+  await page.locator(selector).waitFor({ state: 'visible', timeout: 5_000 });
+  await page.evaluate(({ selector, label }) => {
+    const control = document.querySelector(selector);
+    if (!(control instanceof HTMLElement)) throw new Error(`${label} is not an HTML control`);
+    control.click();
+  }, { selector, label });
 };
 
 try {
@@ -75,7 +94,10 @@ try {
   const tray = page.locator('.r3-board-tray');
   const trayToggle = page.locator('.r3-tray-toggle');
   const expandedBefore = await trayToggle.getAttribute('aria-expanded');
-  await trayToggle.click({ timeout: 2_000 });
+  // locator.click() waits for a stable bounding box. Continuous software-WebGL
+  // painting can prevent that heuristic from settling despite a healthy main
+  // thread, so invoke the same DOM activation behaviour deterministically.
+  await activate('.r3-tray-toggle', 'tray toggle');
   await page.waitForFunction(before => document.querySelector('.r3-tray-toggle')?.getAttribute('aria-expanded') !== before, expandedBefore);
   await heartbeat('tray-toggle');
 
@@ -100,7 +122,7 @@ try {
     if (counts.canvases > 1 || counts.renderers > 1) throw new Error(`Progressive renderer duplication: ${JSON.stringify(counts)}`);
   }
   const expandedAfterStaging = await trayToggle.getAttribute('aria-expanded');
-  await trayToggle.click({ timeout: 2_000 });
+  await activate('.r3-tray-toggle', 'tray toggle');
   await page.waitForFunction(before => document.querySelector('.r3-tray-toggle')?.getAttribute('aria-expanded') !== before, expandedAfterStaging);
   await heartbeat('post-staging-tray-toggle');
 
