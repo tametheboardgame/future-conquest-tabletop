@@ -67,7 +67,10 @@ const heartbeat = async (label, timeout = 2_000) => {
 
 try {
   const runtimeUrl = new URL(origin);
-  runtimeUrl.searchParams.set('r5Scene', sceneMode);
+  if (diagnosticOnly) {
+    runtimeUrl.searchParams.set('r5Diagnostic', '1');
+    runtimeUrl.searchParams.set('r5Scene', sceneMode);
+  }
   await page.goto(runtimeUrl.href, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   const begin = page.getByRole('button', { name: 'BEGIN CAMPAIGN', exact: true });
   await begin.waitFor({ state: 'visible', timeout: 10_000 });
@@ -80,6 +83,10 @@ try {
   await page.locator('.startup-launcher').waitFor({ state: 'detached', timeout: 5_000 });
   await page.locator('.r3-tabletop-shell').waitFor({ state: 'visible', timeout: 5_000 });
   await heartbeat('post-launch');
+  // The production readiness budget starts as soon as launch completes. The
+  // diagnostic observations below are scheduled concurrently and never extend
+  // the original 30-second acceptance deadline.
+  const readinessDeadline = Date.now() + 30_000;
 
   const readinessSnapshot = () => page.evaluate(() => {
     const geometry = selector => {
@@ -103,12 +110,15 @@ try {
       renderers: document.querySelectorAll('.r3-terrain-prototype').length
     };
   });
-  for (const delay of [1_000, 4_000, 5_000, 10_000]) {
-    await page.waitForTimeout(delay);
-    console.log(`R5 periodic readiness ${sceneMode}:`, JSON.stringify(await readinessSnapshot()));
-  }
+  const periodicSnapshots = [1_000, 5_000, 10_000, 20_000].map(delay => new Promise(resolve => {
+    setTimeout(async () => {
+      const snapshot = await readinessSnapshot();
+      console.log(`R5 periodic readiness ${sceneMode} ${delay}ms:`, JSON.stringify(snapshot));
+      resolve(snapshot);
+    }, delay);
+  }));
   if (diagnosticOnly) {
-    await heartbeat(`diagnostic-${sceneMode}`);
+    await Promise.all(periodicSnapshots);
     console.log(`R5 isolation result ${sceneMode}:`, JSON.stringify(await readinessSnapshot()));
     await page.screenshot({ path: screenshotPath, fullPage: true });
     await browser.close();
@@ -120,7 +130,7 @@ try {
 
   const terrain = page.locator('.r3-terrain-prototype');
   const ready = page.locator('.r3-terrain-prototype[data-status="ready"]');
-  await ready.waitFor({ state: 'visible', timeout: 30_000 });
+  await ready.waitFor({ state: 'visible', timeout: Math.max(1, readinessDeadline - Date.now()) });
   await page.waitForFunction(() => document.querySelector('.r3-terrain-prototype')?.getAttribute('data-physical-formations') === 'ready', null, { timeout: 15_000 });
   await page.waitForFunction(() => (window.__r3FormationMiniatures?.renderCount ?? 0) > 0, null, { timeout: 10_000 });
   const rendererCount = await terrain.count();
