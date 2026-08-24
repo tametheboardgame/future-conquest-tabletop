@@ -5,6 +5,7 @@ import type { TabletopPrototypeForce } from './pieces';
 import type { TabletopGameState } from './state';
 import { buildR5RichMapPresentation } from './rich-map-adapter';
 import type { R5MapDiagnosticMode } from './r5-hardware-diagnostic';
+import type { TerrainDiagnosticScene } from '../components/TerrainMapPrototypeImpl';
 
 interface Props {
   board: TabletopBoardDefinition;
@@ -43,6 +44,9 @@ export function RichMapBackdrop(props: Props) {
       onSelectGroup={props.onSelectPiece}
     /></Suspense>
   </div>;
+  const diagnosticScene: TerrainDiagnosticScene | undefined = props.diagnosticMode?.startsWith('terrain-')
+    ? props.diagnosticMode.slice('terrain-'.length) as TerrainDiagnosticScene
+    : props.diagnosticMode === 'full' ? 'full' : undefined;
   return <div className="r5-rich-map" aria-label="Physical terrain, landmark and formation presentation">
     <Suspense fallback={<div className="r3-terrain-prototype-loading" role="status">Loading terrain command map…</div>}><LazyTerrainMap
       state={scene.legacyState}
@@ -53,6 +57,7 @@ export function RichMapBackdrop(props: Props) {
       onSelectGroup={props.onSelectPiece}
       onFallback={() => setAvailable(false)}
       presentationProfile="full"
+      diagnosticScene={diagnosticScene}
     /></Suspense>
   </div>;
 }

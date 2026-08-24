@@ -60,7 +60,11 @@ export interface TerrainMapPrototypeProps {
   onSelectGroup?: (groupId: string) => void;
   onFallback: (reason: string) => void;
   presentationProfile?: Exclude<TerrainPresentationProfile, 'svg-fallback'>;
+  /** Explicit opt-in scene isolation for the R5 hardware diagnostic. */
+  diagnosticScene?: TerrainDiagnosticScene;
 }
+
+export type TerrainDiagnosticScene = 'none' | 'world' | 'formations' | 'full';
 
 type PrototypeStatus = 'initialising' | 'ready' | 'warning';
 
@@ -550,7 +554,8 @@ export function TerrainMapPrototypeImpl({
   onSelect,
   onSelectGroup,
   onFallback,
-  presentationProfile = 'full'
+  presentationProfile = 'full',
+  diagnosticScene = 'full'
 }: TerrainMapPrototypeProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
@@ -658,14 +663,8 @@ export function TerrainMapPrototypeImpl({
       });
       const diagnosticWindow = window as typeof window & { __r3TerrainDiagnostics?: Record<string, unknown> };
       const query = new URLSearchParams(window.location.search);
-      const hardwareMode = query.get('r5HardwareDiag');
-      const diagnosticMode = query.get('r5Diagnostic') === '1' || hardwareMode !== null;
-      const requestedSceneMode = hardwareMode?.replace('terrain-', '') ?? query.get('r5Scene');
-      const diagnosticSceneModes = ['none', 'world', 'formations', 'full'] as const;
-      const sceneMode = diagnosticMode
-        && diagnosticSceneModes.some(mode => mode === requestedSceneMode)
-        ? requestedSceneMode as typeof diagnosticSceneModes[number]
-        : 'full';
+      const diagnosticMode = query.get('r5Diagnostic') === '1' || query.has('r5HardwareDiag');
+      const sceneMode = diagnosticScene;
       const diagnostics: TerrainDiagnosticRecord = diagnosticWindow.__r3TerrainDiagnostics = {
         sceneMode,
         mapConstructCount: Number(diagnosticWindow.__r3TerrainDiagnostics?.mapConstructCount ?? 0) + 1,
@@ -958,18 +957,18 @@ export function TerrainMapPrototypeImpl({
       map.on('load', async () => {
         try {
           // Keep Three.js out of the already budgeted terrain bootstrap chunk.
-          const [{ FormationMiniaturesLayer }, { WorldMiniaturesLayer }] = await Promise.all([
-            import('../presentation/r3-formation-miniatures-layer'),
-            import('../presentation/r3-world-miniatures-layer')
+          const [formationModule, worldModule] = await Promise.all([
+            sceneMode === 'formations' || sceneMode === 'full' ? import('../presentation/r3-formation-miniatures-layer') : null,
+            sceneMode === 'world' || sceneMode === 'full' ? import('../presentation/r3-world-miniatures-layer') : null
           ]);
           if (disposed) return;
-          if (sceneMode === 'world' || sceneMode === 'full') {
-            const worldLayer = new WorldMiniaturesLayer(layersRef.current);
+          if (worldModule) {
+            const worldLayer = new worldModule.WorldMiniaturesLayer(layersRef.current);
             map.addLayer(worldLayer);
             worldMiniaturesRef.current = worldLayer;
           }
-          if (sceneMode === 'formations' || sceneMode === 'full') {
-            const miniatureLayer = new FormationMiniaturesLayer(stateRef.current, layersRef.current);
+          if (formationModule) {
+            const miniatureLayer = new formationModule.FormationMiniaturesLayer(stateRef.current, layersRef.current);
             map.addLayer(miniatureLayer);
             formationMiniaturesRef.current = miniatureLayer;
           }
