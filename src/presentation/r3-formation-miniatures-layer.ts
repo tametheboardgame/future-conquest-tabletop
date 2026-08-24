@@ -44,6 +44,8 @@ const SOLDIER_GROUP_NAME = 'future-soldier-batches';
 const SOLDIER_DETAIL_GROUP_NAME = 'future-soldier-detail-batches';
 const SOLDIER_BATCH_COUNT = 7;
 const ELEVATION_RESAMPLE_DEGREES = 0.01;
+const ELEVATION_SAMPLES_PER_FRAME = 2;
+const ELEVATION_NULL_RETRY_MS = 1_000;
 const FIGURE_OFFSETS = [[-0.5, -0.2], [0, 0.22], [0.5, -0.2], [-0.25, 0.55], [0.25, 0.55]] as const;
 
 type MiniatureLod = 'theatre' | 'campaign' | 'local';
@@ -57,6 +59,8 @@ type Piece = {
   startedAt: number;
   elevation?: number;
   elevationAt?: FormationGeoPoint;
+  elevationAttemptAt?: FormationGeoPoint;
+  nextElevationAttemptAt?: number;
 };
 
 export type FormationMiniatureBrowserEvidence = {
@@ -64,6 +68,8 @@ export type FormationMiniatureBrowserEvidence = {
   visualFamily: typeof R3_FUTURE_SOLDIER_VISUAL_FAMILY;
   reducedMotion: boolean;
   renderCount: number;
+  elevationSampleAttempts: number;
+  elevationNullSamples: number;
   presentationWithheld: boolean;
   pieces: Array<{
     id: string;
@@ -403,6 +409,8 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
   private reducedMotion: boolean;
   private visible: boolean;
   private renderCount = 0;
+  private elevationSampleAttempts = 0;
+  private elevationNullSamples = 0;
   private clusterOffsetById = new globalThis.Map<string, readonly [number, number]>();
 
   constructor(state: GameState, layers: Pick<TerrainOperationalLayers, 'friendlyFormations'>) {
@@ -463,7 +471,9 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
           target,
           startedAt: performance.now(),
           elevation: old?.elevation,
-          elevationAt: old?.elevationAt
+          elevationAt: old?.elevationAt,
+          elevationAttemptAt: old?.elevationAttemptAt,
+          nextElevationAttemptAt: old?.nextElevationAttemptAt
         });
       } else {
         if (old.target[0] !== target[0] || old.target[1] !== target[1]) {
@@ -488,16 +498,28 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
     const lod = miniatureLodForZoom(zoom);
     const presentationWithheld = document.documentElement.dataset.r3WithholdFormations === 'true';
     const browserPieces: FormationMiniatureBrowserEvidence['pieces'] = [];
+    let elevationBudget = ELEVATION_SAMPLES_PER_FRAME;
     for (const [id, piece] of this.pieces) {
       const elapsed = now - piece.startedAt;
       piece.current = this.reducedMotion ? piece.target : interpolateFormationPresentation(piece.from, piece.target, elapsed);
       animating ||= !this.reducedMotion && elapsed < FORMATION_PRESENTATION_ANIMATION_MS;
       const lngLat: [number, number] = [piece.current[0], piece.current[1]];
-      if (needsElevationSample(piece, lngLat)) {
+      const movedSinceAttempt = !piece.elevationAttemptAt
+        || Math.abs(piece.elevationAttemptAt[0] - lngLat[0]) >= ELEVATION_RESAMPLE_DEGREES
+        || Math.abs(piece.elevationAttemptAt[1] - lngLat[1]) >= ELEVATION_RESAMPLE_DEGREES;
+      if (elevationBudget > 0 && needsElevationSample(piece, lngLat)
+        && (movedSinceAttempt || now >= (piece.nextElevationAttemptAt ?? 0))) {
+        elevationBudget -= 1;
+        this.elevationSampleAttempts += 1;
+        piece.elevationAttemptAt = [...lngLat];
         const sampledElevation = this.map.queryTerrainElevation(lngLat);
         if (sampledElevation !== null) {
           piece.elevation = sampledElevation;
           piece.elevationAt = [...lngLat];
+          piece.nextElevationAttemptAt = undefined;
+        } else {
+          this.elevationNullSamples += 1;
+          piece.nextElevationAttemptAt = now + ELEVATION_NULL_RETRY_MS;
         }
       }
       const elevation = piece.elevation ?? 0;
@@ -529,6 +551,8 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
       visualFamily: R3_FUTURE_SOLDIER_VISUAL_FAMILY,
       reducedMotion: this.reducedMotion,
       renderCount: this.renderCount,
+      elevationSampleAttempts: this.elevationSampleAttempts,
+      elevationNullSamples: this.elevationNullSamples,
       presentationWithheld,
       pieces: browserPieces
     };

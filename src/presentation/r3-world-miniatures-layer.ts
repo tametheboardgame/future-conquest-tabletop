@@ -16,6 +16,8 @@ import type { TerrainOperationalLayers } from './r3-terrain-operational-markers-
 
 export const R3_WORLD_MINIATURE_LAYER_ID = 'r3-wp3-5-world-miniatures';
 const CLEARANCE_METRES = 22;
+const ELEVATION_SAMPLES_PER_FRAME = 2;
+const ELEVATION_NULL_RETRY_MS = 1_000;
 
 type WorldLod = 'theatre' | 'campaign' | 'selected';
 type WorldKind = 'city' | 'port' | 'airport' | 'rail-hub' | 'logistics' | 'crossing';
@@ -28,6 +30,7 @@ type WorldPiece = {
   fallbackRoot: Group;
   kind: WorldKind;
   elevation?: number;
+  nextElevationAttemptAt?: number;
   cityVariant?: 'generic' | LandmarkMiniatureCityVariant;
   landmarks?: readonly string[];
   asset?: LandmarkMiniatureAssetDefinition;
@@ -38,6 +41,8 @@ type WorldPiece = {
 export type WorldMiniatureEvidence = {
   layerId: string;
   renderCount: number;
+  elevationSampleAttempts: number;
+  elevationNullSamples: number;
   lod: WorldLod;
   objects: Array<{
     id: string;
@@ -186,6 +191,8 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
   private readonly pieces: WorldPiece[];
   private layers: TerrainOperationalLayers;
   private renderCount = 0;
+  private elevationSampleAttempts = 0;
+  private elevationNullSamples = 0;
   private disposed = false;
 
   constructor(layers: TerrainOperationalLayers) {
@@ -255,6 +262,8 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
     const lod: WorldLod = zoom < 4.8 ? 'theatre' : zoom < 6.4 ? 'campaign' : 'selected';
     const evidence: WorldMiniatureEvidence['objects'] = [];
 
+    let elevationBudget = ELEVATION_SAMPLES_PER_FRAME;
+    const now = performance.now();
     for (const piece of this.pieces) {
       const enabled = piece.kind === 'port' ? this.layers.ports
         : piece.kind === 'airport' ? this.layers.airports
@@ -275,8 +284,18 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
 
       // Do not request terrain data for culled pieces. This preserves the WP2E
       // network/performance boundary while still grounding every visible piece.
-      if (rootVisible) {
-        piece.elevation ??= this.map.queryTerrainElevation([piece.node.position[0], piece.node.position[1]]) ?? undefined;
+      if (rootVisible && piece.elevation === undefined && elevationBudget > 0
+        && now >= (piece.nextElevationAttemptAt ?? 0)) {
+        elevationBudget -= 1;
+        this.elevationSampleAttempts += 1;
+        const sampledElevation = this.map.queryTerrainElevation([piece.node.position[0], piece.node.position[1]]);
+        if (sampledElevation === null) {
+          this.elevationNullSamples += 1;
+          piece.nextElevationAttemptAt = now + ELEVATION_NULL_RETRY_MS;
+        } else {
+          piece.elevation = sampledElevation;
+          piece.nextElevationAttemptAt = undefined;
+        }
       }
       const elevation = piece.elevation ?? 0;
       const coordinate = MercatorCoordinate.fromLngLat(piece.node.position, elevation + CLEARANCE_METRES);
@@ -306,7 +325,14 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
     this.renderer.resetState();
     this.renderer.render(this.scene, this.camera);
     this.renderCount += 1;
-    window.__r3WorldMiniatures = { layerId: this.id, renderCount: this.renderCount, lod, objects: evidence };
+    window.__r3WorldMiniatures = {
+      layerId: this.id,
+      renderCount: this.renderCount,
+      elevationSampleAttempts: this.elevationSampleAttempts,
+      elevationNullSamples: this.elevationNullSamples,
+      lod,
+      objects: evidence
+    };
   }
 
   onRemove() {

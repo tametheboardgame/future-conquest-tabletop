@@ -44,7 +44,10 @@ interface StrategicPreferences {
   resource: R3ResourceMetric;
 }
 
-type TerrainWindow = typeof window & { __r3TerrainMap?: Map };
+type TerrainWindow = typeof window & {
+  __r3TerrainMap?: Map;
+  __r3TerrainSourceUpdates?: { effectRuns: number; setDataCalls: number; taskGroupCount: number };
+};
 
 function browserTerrainProfile(): TerrainPresentationProfile {
   if (typeof window === 'undefined') return 'full';
@@ -99,6 +102,10 @@ export function TerrainMapPrototype(props: TerrainMapPrototypeProps) {
 
   useEffect(() => {
     if (profile === 'svg-fallback') return;
+    const terrainWindow = window as TerrainWindow;
+    const sourceUpdates = terrainWindow.__r3TerrainSourceUpdates ??= { effectRuns: 0, setDataCalls: 0, taskGroupCount: 0 };
+    sourceUpdates.effectRuns += 1;
+    sourceUpdates.taskGroupCount = Object.keys(state.taskGroups).length;
     let frame = 0;
     let disposed = false;
     let dataSynchronised = false;
@@ -143,6 +150,7 @@ export function TerrainMapPrototype(props: TerrainMapPrototypeProps) {
         territorySource.setData(strategicData);
         routeSource.setData(strategicRouteData);
         nodeSource.setData(strategicNodeData);
+        sourceUpdates.setDataCalls += 3;
         dataSynchronised = true;
       }
 

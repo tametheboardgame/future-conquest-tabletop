@@ -59,13 +59,12 @@ test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer a
   const probe = readFileSync('scripts/probe-r5-bg0-runtime.mjs', 'utf8');
   assert.match(workflow, /Checkout exact PR head/);
   assert.match(workflow, /probe-r5-bg0-runtime\.mjs/);
-  assert.match(workflow, /R5_CHROMIUM_SOFTWARE_WEBGL: '1'/);
-  assert.match(probe, /--use-angle=swiftshader/);
-  assert.match(probe, /--enable-unsafe-swiftshader/);
+  assert.doesNotMatch(workflow, /R5_CHROMIUM_SOFTWARE_WEBGL/);
+  assert.match(probe, /chromium\.launch\(\{ headless: true \}\)/);
+  assert.doesNotMatch(probe, /swiftshader|enable-unsafe-swiftshader|control\.click/);
   assert.match(probe, /BEGIN CAMPAIGN/);
   assert.match(probe, /main-thread heartbeat/);
   assert.match(probe, /setTimeout\(\(\) => resolve\(performance\.now\(\)\), 0\)/);
-  assert.match(probe, /control\.click\(\)/);
   assert.match(probe, /\.r3-tabletop-shell/);
   assert.match(probe, /\.r3-tray-toggle/);
   assert.match(probe, /Duplicate terrain runtime/);
@@ -76,7 +75,26 @@ test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer a
   assert.match(probe, /webglcontextlost/);
   assert.match(probe, /animationFrames/);
   assert.match(probe, /runtimeEvidence/);
+  assert.match(probe, /terrainStatus !== 'ready'/);
+  assert.match(probe, /physicalFormations !== 'ready'/);
+  assert.match(probe, /MapLibre did not completely settle/);
+  assert.match(probe, /canvasGeometry/);
+  assert.match(probe, /formationElevationAttempts/);
+  assert.match(probe, /sourceUpdates/);
   assert.match(probe, /screenshot/);
+});
+
+test('terrain elevation readbacks are bounded and null retries are cached', () => {
+  const formations = readFileSync('src/presentation/r3-formation-miniatures-layer.ts', 'utf8');
+  const world = readFileSync('src/presentation/r3-world-miniatures-layer.ts', 'utf8');
+  for (const layer of [formations, world]) {
+    assert.match(layer, /ELEVATION_SAMPLES_PER_FRAME/);
+    assert.match(layer, /ELEVATION_NULL_RETRY_MS/);
+    assert.match(layer, /elevationBudget > 0/);
+    assert.match(layer, /nextElevationAttemptAt/);
+    assert.match(layer, /elevationSampleAttempts/);
+    assert.match(layer, /elevationNullSamples/);
+  }
 });
 
 test('adapter projects stable renderer ids from R5 authority and legal actions', () => {
