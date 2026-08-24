@@ -29,6 +29,7 @@ type WorldPiece = {
   fallbackRoot: Group;
   kind: WorldKind;
   elevation?: number;
+  elevationSampled?: boolean;
   cityVariant?: 'generic' | LandmarkMiniatureCityVariant;
   landmarks?: readonly string[];
   asset?: LandmarkMiniatureAssetDefinition;
@@ -277,8 +278,10 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
 
       // Do not request terrain data for culled pieces. This preserves the WP2E
       // network/performance boundary while still grounding every visible piece.
-      if (rootVisible) {
-        piece.elevation ??= this.map.queryTerrainElevation([piece.node.position[0], piece.node.position[1]]) ?? undefined;
+      if (rootVisible && !piece.elevationSampled) {
+        const sampledElevation = this.map.queryTerrainElevation([piece.node.position[0], piece.node.position[1]]);
+        piece.elevationSampled = true;
+        if (sampledElevation !== null) piece.elevation = sampledElevation;
       }
       const elevation = piece.elevation ?? 0;
       const coordinate = MercatorCoordinate.fromLngLat(piece.node.position, elevation + CLEARANCE_METRES);

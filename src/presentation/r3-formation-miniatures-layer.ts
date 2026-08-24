@@ -497,9 +497,11 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
       const lngLat: [number, number] = [piece.current[0], piece.current[1]];
       if (needsElevationSample(piece, lngLat)) {
         const sampledElevation = this.map.queryTerrainElevation(lngLat);
+        // Null is still a completed sample. Retrying the synchronous terrain
+        // readback every render frame while DEM tiles settle can freeze the UI.
+        piece.elevationAt = [...lngLat];
         if (sampledElevation !== null) {
           piece.elevation = sampledElevation;
-          piece.elevationAt = [...lngLat];
         }
       }
       const elevation = piece.elevation ?? 0;
