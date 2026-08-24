@@ -44,8 +44,9 @@ const SOLDIER_GROUP_NAME = 'future-soldier-batches';
 const SOLDIER_DETAIL_GROUP_NAME = 'future-soldier-detail-batches';
 const SOLDIER_BATCH_COUNT = 7;
 const ELEVATION_RESAMPLE_DEGREES = 0.01;
-const ELEVATION_SAMPLES_PER_FRAME = 2;
-const ELEVATION_NULL_RETRY_MS = 1_000;
+const ELEVATION_SAMPLES_PER_FRAME = 1;
+const ELEVATION_SAMPLE_INTERVAL_MS = 250;
+const ELEVATION_NULL_RETRY_MS = 2_000;
 const FIGURE_OFFSETS = [[-0.5, -0.2], [0, 0.22], [0.5, -0.2], [-0.25, 0.55], [0.25, 0.55]] as const;
 
 type MiniatureLod = 'theatre' | 'campaign' | 'local';
@@ -499,16 +500,14 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
     const presentationWithheld = document.documentElement.dataset.r3WithholdFormations === 'true';
     const browserPieces: FormationMiniatureBrowserEvidence['pieces'] = [];
     let elevationBudget = ELEVATION_SAMPLES_PER_FRAME;
+    const terrainReady = this.map.areTilesLoaded();
     for (const [id, piece] of this.pieces) {
       const elapsed = now - piece.startedAt;
       piece.current = this.reducedMotion ? piece.target : interpolateFormationPresentation(piece.from, piece.target, elapsed);
       animating ||= !this.reducedMotion && elapsed < FORMATION_PRESENTATION_ANIMATION_MS;
       const lngLat: [number, number] = [piece.current[0], piece.current[1]];
-      const movedSinceAttempt = !piece.elevationAttemptAt
-        || Math.abs(piece.elevationAttemptAt[0] - lngLat[0]) >= ELEVATION_RESAMPLE_DEGREES
-        || Math.abs(piece.elevationAttemptAt[1] - lngLat[1]) >= ELEVATION_RESAMPLE_DEGREES;
-      if (elevationBudget > 0 && needsElevationSample(piece, lngLat)
-        && (movedSinceAttempt || now >= (piece.nextElevationAttemptAt ?? 0))) {
+      if (terrainReady && elevationBudget > 0 && needsElevationSample(piece, lngLat)
+        && now >= (piece.nextElevationAttemptAt ?? 0)) {
         elevationBudget -= 1;
         this.elevationSampleAttempts += 1;
         piece.elevationAttemptAt = [...lngLat];
@@ -516,7 +515,7 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
         if (sampledElevation !== null) {
           piece.elevation = sampledElevation;
           piece.elevationAt = [...lngLat];
-          piece.nextElevationAttemptAt = undefined;
+          piece.nextElevationAttemptAt = now + ELEVATION_SAMPLE_INTERVAL_MS;
         } else {
           this.elevationNullSamples += 1;
           piece.nextElevationAttemptAt = now + ELEVATION_NULL_RETRY_MS;

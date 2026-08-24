@@ -16,8 +16,9 @@ import type { TerrainOperationalLayers } from './r3-terrain-operational-markers-
 
 export const R3_WORLD_MINIATURE_LAYER_ID = 'r3-wp3-5-world-miniatures';
 const CLEARANCE_METRES = 22;
-const ELEVATION_SAMPLES_PER_FRAME = 2;
-const ELEVATION_NULL_RETRY_MS = 1_000;
+const ELEVATION_SAMPLES_PER_FRAME = 1;
+const ELEVATION_SAMPLE_INTERVAL_MS = 250;
+const ELEVATION_NULL_RETRY_MS = 2_000;
 
 type WorldLod = 'theatre' | 'campaign' | 'selected';
 type WorldKind = 'city' | 'port' | 'airport' | 'rail-hub' | 'logistics' | 'crossing';
@@ -264,6 +265,7 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
 
     let elevationBudget = ELEVATION_SAMPLES_PER_FRAME;
     const now = performance.now();
+    const terrainReady = this.map.areTilesLoaded();
     for (const piece of this.pieces) {
       const enabled = piece.kind === 'port' ? this.layers.ports
         : piece.kind === 'airport' ? this.layers.airports
@@ -284,7 +286,7 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
 
       // Do not request terrain data for culled pieces. This preserves the WP2E
       // network/performance boundary while still grounding every visible piece.
-      if (rootVisible && piece.elevation === undefined && elevationBudget > 0
+      if (terrainReady && rootVisible && piece.elevation === undefined && elevationBudget > 0
         && now >= (piece.nextElevationAttemptAt ?? 0)) {
         elevationBudget -= 1;
         this.elevationSampleAttempts += 1;
@@ -294,7 +296,7 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
           piece.nextElevationAttemptAt = now + ELEVATION_NULL_RETRY_MS;
         } else {
           piece.elevation = sampledElevation;
-          piece.nextElevationAttemptAt = undefined;
+          piece.nextElevationAttemptAt = now + ELEVATION_SAMPLE_INTERVAL_MS;
         }
       }
       const elevation = piece.elevation ?? 0;

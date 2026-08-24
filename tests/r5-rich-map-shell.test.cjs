@@ -90,7 +90,9 @@ test('terrain elevation readbacks are bounded and null retries are cached', () =
   for (const layer of [formations, world]) {
     assert.match(layer, /ELEVATION_SAMPLES_PER_FRAME/);
     assert.match(layer, /ELEVATION_NULL_RETRY_MS/);
+    assert.match(layer, /ELEVATION_SAMPLE_INTERVAL_MS/);
     assert.match(layer, /elevationBudget > 0/);
+    assert.match(layer, /terrainReady/);
     assert.match(layer, /nextElevationAttemptAt/);
     assert.match(layer, /elevationSampleAttempts/);
     assert.match(layer, /elevationNullSamples/);
