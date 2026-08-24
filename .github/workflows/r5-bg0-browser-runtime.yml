@@ -22,6 +22,14 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Run full test suite
+        run: npm test
+      - name: Run R5 test suite explicitly
+        run: npm run test:r5
+      - name: Typecheck app
+        run: npx tsc --noEmit -p tsconfig.app.json
+      - name: Verify diff whitespace
+        run: git diff --check ${{ github.event.pull_request.base.sha || 'HEAD^' }} ${{ github.event.pull_request.head.sha || 'HEAD' }}
       - run: npm run build
       - name: Install Chromium
         run: |
