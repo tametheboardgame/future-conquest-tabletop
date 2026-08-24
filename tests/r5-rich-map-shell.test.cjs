@@ -86,8 +86,8 @@ test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer a
   assert.match(probe, /terrain-none/);
   assert.match(probe, /LAUNCHED \/ RESPONSIVE/);
   assert.match(probe, /data-status/);
-  assert.match(probe, /expected\.formations/);
-  assert.match(probe, /expected\.world/);
+  assert.match(probe, /terrain-formations/);
+  assert.match(probe, /terrain-world/);
   assert.match(probe, /maplibregl-canvas/);
   assert.match(probe, /r3FormationMiniatures/);
   assert.match(probe, /r3WorldMiniatures/);
