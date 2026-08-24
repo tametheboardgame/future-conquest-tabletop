@@ -35,6 +35,9 @@ await page.addInitScript(() => {
   if (document.documentElement) observeStages();
   else document.addEventListener('DOMContentLoaded', observeStages, { once: true });
 });
+if (diagnosticOnly) {
+  await page.addInitScript(() => { window.__r5DiagnosticSceneIsolation = true; });
+}
 page.on('console', message => {
   const line = `[browser console ${message.type()}] ${message.text()}`;
   console.log(line);
@@ -67,7 +70,7 @@ const heartbeat = async (label, timeout = 2_000) => {
 
 try {
   const runtimeUrl = new URL(origin);
-  runtimeUrl.searchParams.set('r5Scene', sceneMode);
+  if (diagnosticOnly) runtimeUrl.searchParams.set('r5Scene', sceneMode);
   await page.goto(runtimeUrl.href, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   const begin = page.getByRole('button', { name: 'BEGIN CAMPAIGN', exact: true });
   await begin.waitFor({ state: 'visible', timeout: 10_000 });
@@ -103,10 +106,12 @@ try {
       renderers: document.querySelectorAll('.r3-terrain-prototype').length
     };
   });
-  for (const delay of [1_000, 4_000, 5_000, 10_000]) {
+  const readinessStarted = Date.now();
+  const periodicSnapshots = [1_000, 5_000, 10_000, 20_000].map(delay => (async () => {
     await page.waitForTimeout(delay);
-    console.log(`R5 periodic readiness ${sceneMode}:`, JSON.stringify(await readinessSnapshot()));
-  }
+    console.log(`R5 periodic readiness ${sceneMode} ${delay}ms:`, JSON.stringify(await readinessSnapshot()));
+  })());
+  await Promise.all(periodicSnapshots);
   if (diagnosticOnly) {
     await heartbeat(`diagnostic-${sceneMode}`);
     console.log(`R5 isolation result ${sceneMode}:`, JSON.stringify(await readinessSnapshot()));
@@ -120,7 +125,9 @@ try {
 
   const terrain = page.locator('.r3-terrain-prototype');
   const ready = page.locator('.r3-terrain-prototype[data-status="ready"]');
-  await ready.waitFor({ state: 'visible', timeout: 30_000 });
+  const readinessRemaining = 30_000 - (Date.now() - readinessStarted);
+  if (readinessRemaining <= 0) throw new Error('Production terrain exceeded the strict 30-second readiness deadline.');
+  await ready.waitFor({ state: 'visible', timeout: readinessRemaining });
   await page.waitForFunction(() => document.querySelector('.r3-terrain-prototype')?.getAttribute('data-physical-formations') === 'ready', null, { timeout: 15_000 });
   await page.waitForFunction(() => (window.__r3FormationMiniatures?.renderCount ?? 0) > 0, null, { timeout: 10_000 });
   const rendererCount = await terrain.count();
