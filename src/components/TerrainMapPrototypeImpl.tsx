@@ -557,6 +557,7 @@ export function TerrainMapPrototypeImpl({
     let cancelOperationalLayoutFrame: (() => void) | undefined;
     let revealFrame: number | undefined;
     let readinessDiagnostic: number | undefined;
+    const richLayerTimers: number[] = [];
     const resizeAfterReveal = () => {
       if (revealFrame !== undefined) window.cancelAnimationFrame(revealFrame);
       revealFrame = window.requestAnimationFrame(() => {
@@ -621,8 +622,8 @@ export function TerrainMapPrototypeImpl({
         toolbarResizeObserver = new ResizeObserver(applySafePadding);
         toolbarResizeObserver.observe(toolbarRef.current);
       }
-      // Start with hillshade relief, which paints without MapLibre's synchronous
-      // elevation readback. The full mesh is staged for local-detail zooms.
+      // Start with hillshade relief, then restore the physical mesh after the
+      // base style has settled. This avoids competing GPU setup during paint.
       let terrainMeshMode: 'physical' | 'strategic-flat' = 'strategic-flat';
       const updateOverlayLod = () => {
         const host = containerRef.current?.parentElement;
@@ -638,9 +639,9 @@ export function TerrainMapPrototypeImpl({
           host.dataset.terrainRelief = 'strategic-flat';
           return;
         }
-        // Reserve synchronous elevation readback for deliberate close local
-        // inspection; ordinary campaign pan/zoom stays on responsive hillshade.
-        const nextMode = map.getZoom() < 9.5 ? 'strategic-flat' : 'physical';
+        // Restore relief for normal campaign/local views after style load;
+        // theatre overview remains flat to keep wide-area navigation cheap.
+        const nextMode = map.getZoom() < 4.8 ? 'strategic-flat' : 'physical';
         if (nextMode !== terrainMeshMode) {
           // Keep the DEM source attached in Theatre so MapLibre can retain its
           // terrain tile cache across Theatre -> Campaign/Selected transitions.
@@ -682,20 +683,24 @@ export function TerrainMapPrototypeImpl({
         setMessage(`${terrainSource.label} · ${presentationProfile === 'compact' ? 'compact terrain' : 'continuous relief'} · operational overlays projected from campaign state`);
         let miniatureStartupPending = false;
         const startPhysicalMiniatures = async () => {
-          if (map.getZoom() < 9.5 || miniatureStartupPending || worldMiniaturesRef.current) return;
+          if (map.getZoom() < 4.8 || miniatureStartupPending || worldMiniaturesRef.current) return;
           miniatureStartupPending = true;
           try {
-            // Keep Three.js out of bootstrap and ordinary campaign navigation.
-            // The authored city, portal, landmark and formation miniatures enter
-            // only for deliberate close inspection, alongside the terrain mesh.
-            const [{ FormationMiniaturesLayer }, { WorldMiniaturesLayer }] = await Promise.all([
-              import('../presentation/r3-formation-miniatures-layer'),
-              import('../presentation/r3-world-miniatures-layer')
-            ]);
+            // Import and attach each shared-context Three.js layer in a separate
+            // task. Compiling both scenes in the same MapLibre frame caused a
+            // large hardware-WebGL spike after the shell had already painted.
+            const { WorldMiniaturesLayer } = await import('../presentation/r3-world-miniatures-layer');
             if (disposed) return;
             const worldLayer = new WorldMiniaturesLayer(layersRef.current);
             map.addLayer(worldLayer);
             worldMiniaturesRef.current = worldLayer;
+            await new Promise<void>(resolve => {
+              const timer = window.setTimeout(resolve, 750);
+              richLayerTimers.push(timer);
+            });
+            if (disposed) return;
+            const { FormationMiniaturesLayer } = await import('../presentation/r3-formation-miniatures-layer');
+            if (disposed) return;
             const miniatureLayer = new FormationMiniaturesLayer(stateRef.current, layersRef.current);
             map.addLayer(miniatureLayer);
             formationMiniaturesRef.current = miniatureLayer;
@@ -709,6 +714,19 @@ export function TerrainMapPrototypeImpl({
           }
         };
         map.on('zoomend', startPhysicalMiniatures);
+        // Preserve the normal campaign presentation, but give terrain and the
+        // command tray a bounded quiet window before rich scene compilation.
+        richLayerTimers.push(window.setTimeout(() => { void startPhysicalMiniatures(); }, 1_500));
+      });
+
+      const canvas = map.getCanvas();
+      canvas.addEventListener('webglcontextlost', event => {
+        event.preventDefault();
+        if (host) host.dataset.webglContext = 'lost';
+        fallbackRef.current('Terrain graphics context was lost; using the stable command map.');
+      }, { once: true });
+      canvas.addEventListener('webglcontextrestored', () => {
+        if (host) host.dataset.webglContext = 'restored';
       });
 
       readinessDiagnostic = window.setTimeout(() => {
@@ -805,6 +823,7 @@ export function TerrainMapPrototypeImpl({
       window.removeEventListener(R5_GAME_REVEALED_EVENT, resizeAfterReveal);
       if (revealFrame !== undefined) window.cancelAnimationFrame(revealFrame);
       if (readinessDiagnostic !== undefined) window.clearTimeout(readinessDiagnostic);
+      for (const timer of richLayerTimers) window.clearTimeout(timer);
       mapRef.current = null;
       delete (window as typeof window & { __r3TerrainMap?: Map }).__r3TerrainMap;
       delete (window as typeof window & { __r3StrategicNodes?: typeof STRATEGIC_NODES }).__r3StrategicNodes;

@@ -67,7 +67,21 @@ test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer a
   assert.match(probe, /maplibre/);
   assert.match(probe, /pageerror/);
   assert.match(probe, /requestfailed/);
+  assert.match(probe, /progressiveWindowMs/);
+  assert.match(probe, /webglcontextlost/);
+  assert.match(probe, /animationFrames/);
+  assert.match(probe, /runtimeEvidence/);
   assert.match(probe, /screenshot/);
+});
+
+test('rich layers stage independently and cache unsuccessful terrain readbacks', () => {
+  const formations = readFileSync('src/presentation/r3-formation-miniatures-layer.ts', 'utf8');
+  const world = readFileSync('src/presentation/r3-world-miniatures-layer.ts', 'utf8');
+  assert.match(terrain, /setTimeout\(\(\) => \{ void startPhysicalMiniatures\(\); \}, 1_500\)/);
+  assert.doesNotMatch(terrain, /Promise\.all\(\[\s*import\('\.\.\/presentation\/r3-formation-miniatures-layer'/);
+  assert.match(terrain, /webglcontextlost/);
+  assert.match(formations, /piece\.elevationAt = \[\.\.\.lngLat\]/);
+  assert.match(world, /piece\.elevationSampled = true/);
 });
 
 test('adapter projects stable renderer ids from R5 authority and legal actions', () => {
