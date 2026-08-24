@@ -2,7 +2,7 @@ name: R5 BG0 browser runtime gate
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, r5/bg0-hardware-safe-board-hotfix]
   workflow_dispatch:
 
 permissions:
@@ -17,11 +17,20 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Run full test suite
+        run: npm test
+      - name: Run R5 test suite explicitly
+        run: npm run test:r5
+      - name: Typecheck app
+        run: npx tsc --noEmit -p tsconfig.app.json
+      - name: Verify diff whitespace
+        run: git diff --check ${{ github.event.pull_request.base.sha || 'HEAD^' }} ${{ github.event.pull_request.head.sha || 'HEAD' }}
       - run: npm run build
       - name: Install Chromium
         run: |
@@ -34,9 +43,10 @@ jobs:
           cat /tmp/future-conquest-vite.log
           exit 1
       - name: Exercise R5 campaign launch in Chromium
+        id: browser_gate
         run: node scripts/probe-r5-bg0-runtime.mjs
       - name: Isolate custom-layer settlement paths
-        if: failure()
+        if: failure() && steps.browser_gate.outcome == 'failure'
         run: |
           for mode in none world formations full; do
             R5_DIAGNOSTIC_ONLY=1 R5_DIAGNOSTIC_SCENE_MODE="$mode" node scripts/probe-r5-bg0-runtime.mjs

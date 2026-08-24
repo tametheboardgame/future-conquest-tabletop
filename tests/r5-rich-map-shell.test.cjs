@@ -105,6 +105,19 @@ test('CI diagnostics isolate custom layers without weakening the full-scene gate
   assert.match(terrain, /if \(!changed\)[\s\S]*return;[\s\S]*map\.setPadding\(padding\)/);
   assert.match(terrain, /applySafePadding\('initial'\)/);
   assert.match(terrain, /applySafePadding\('toolbar-resize-observer'\)/);
+  assert.match(terrain, /cameraMutationHistory/);
+  assert.match(terrain, /'jumpTo', 'easeTo', 'flyTo', 'setCenter', 'setZoom', 'setPitch'/);
+  assert.match(terrain, /transformEventHistory/);
+  assert.match(terrain, /sourceCacheHistory/);
+  assert.match(terrain, /campaign-fronts first reload diagnostic/);
+  assert.match(terrain, /firstCampaignFrontsReload/);
+  assert.match(terrain, /firstReloadAwaitingLoadedObservation/);
+  assert.match(terrain, /firstPostReloadLoaded/);
+  assert.match(terrain, /wallClock: new Date\(\)\.toISOString\(\)/);
+  assert.match(terrain, /camera: cameraDiagnosticSnapshot\(map\)/);
+  assert.match(terrain, /sourceState: state/);
+  assert.match(terrain, /toolbarLifecycle/);
+  assert.match(terrain, /map-load-react-status-transition/);
 });
 
 test('terrain elevation readbacks are bounded and null retries are cached', () => {

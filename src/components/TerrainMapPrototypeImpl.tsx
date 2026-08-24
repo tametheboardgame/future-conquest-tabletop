@@ -64,6 +64,65 @@ export interface TerrainMapPrototypeProps {
 
 type PrototypeStatus = 'initialising' | 'ready' | 'warning';
 
+type TerrainDiagnosticRecord = Record<string, unknown>;
+
+function diagnosticStack(): string[] {
+  return (new Error().stack ?? '').split('\n').slice(2, 8).map(line => line.trim());
+}
+
+function serialisableDiagnosticValue(value: unknown, seen = new WeakSet<object>(), depth = 0): unknown {
+  if (value === null || ['string', 'boolean', 'undefined'].includes(typeof value)) return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : String(value);
+  if (typeof value !== 'object') return { type: typeof value };
+  if (depth >= 5) return { type: value.constructor?.name ?? 'Object', truncated: true };
+  if (seen.has(value)) return { type: value.constructor?.name ?? 'Object', circular: true };
+  seen.add(value);
+  if (Array.isArray(value)) return value.slice(0, 100).map(item => serialisableDiagnosticValue(item, seen, depth + 1));
+  const record: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value).slice(0, 100)) {
+    if (typeof item !== 'function') record[key] = serialisableDiagnosticValue(item, seen, depth + 1);
+  }
+  return Object.keys(record).length > 0 ? record : { type: value.constructor?.name ?? 'Object' };
+}
+
+function diagnosticArguments(args: unknown[]): unknown[] {
+  return args.map(value => serialisableDiagnosticValue(value));
+}
+
+function internalDiagnosticArguments(args: unknown[]): unknown[] {
+  return args.map(value => value === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof value)
+    ? value
+    : { type: value?.constructor?.name ?? typeof value });
+}
+
+function cameraDiagnosticSnapshot(map: Map): TerrainDiagnosticRecord {
+  const center = map.getCenter();
+  const padding = map.getPadding();
+  return {
+    center: [center.lng, center.lat],
+    zoom: map.getZoom(),
+    pitch: map.getPitch(),
+    bearing: map.getBearing(),
+    padding: { top: padding.top, right: padding.right, bottom: padding.bottom, left: padding.left }
+  };
+}
+
+function elementDiagnosticGeometry(element: Element | null): TerrainDiagnosticRecord | null {
+  if (!(element instanceof HTMLElement)) return null;
+  const bounds = element.getBoundingClientRect();
+  const style = getComputedStyle(element);
+  return {
+    width: bounds.width,
+    height: bounds.height,
+    clientWidth: element.clientWidth,
+    clientHeight: element.clientHeight,
+    display: style.display,
+    position: style.position,
+    transform: style.transform,
+    devicePixelRatio: window.devicePixelRatio
+  };
+}
+
 interface TerrainSourceResolution {
   source: RasterDEMSourceSpecification;
   label: string;
@@ -555,6 +614,7 @@ export function TerrainMapPrototypeImpl({
     let disposed = false;
     let ownedMap: Map | null = null;
     let toolbarResizeObserver: ResizeObserver | null = null;
+    let toolbarMutationObserver: MutationObserver | null = null;
     let cancelOperationalLayoutFrame: (() => void) | undefined;
     let diagnosticTimers: number[] = [];
 
@@ -598,13 +658,14 @@ export function TerrainMapPrototypeImpl({
       });
       const diagnosticWindow = window as typeof window & { __r3TerrainDiagnostics?: Record<string, unknown> };
       const query = new URLSearchParams(window.location.search);
+      const diagnosticMode = query.get('r5Diagnostic') === '1';
       const requestedSceneMode = query.get('r5Scene');
       const diagnosticSceneModes = ['none', 'world', 'formations', 'full'] as const;
-      const sceneMode = query.get('r5Diagnostic') === '1'
+      const sceneMode = diagnosticMode
         && diagnosticSceneModes.some(mode => mode === requestedSceneMode)
         ? requestedSceneMode as typeof diagnosticSceneModes[number]
         : 'full';
-      const diagnostics = diagnosticWindow.__r3TerrainDiagnostics = {
+      const diagnostics: TerrainDiagnosticRecord = diagnosticWindow.__r3TerrainDiagnostics = {
         sceneMode,
         mapConstructCount: Number(diagnosticWindow.__r3TerrainDiagnostics?.mapConstructCount ?? 0) + 1,
         triggerRepaintCount: 0,
@@ -614,20 +675,102 @@ export function TerrainMapPrototypeImpl({
         paddingRequestCount: 0,
         paddingSkippedCount: 0,
         paddingHistory: [],
-        terrainMutationCount: 0
+        terrainMutationCount: 0,
+        cameraMutationHistory: [],
+        transformEventHistory: [],
+        sourceCacheHistory: [],
+        toolbarLifecycle: [],
+        firstCampaignFrontsReload: null
       };
+      const boundedPush = (key: string, value: TerrainDiagnosticRecord, limit = 80) => {
+        const history = diagnostics[key] as TerrainDiagnosticRecord[];
+        history.push(value);
+        if (history.length > limit) history.shift();
+      };
+      const layoutSnapshot = () => ({
+        toolbar: elementDiagnosticGeometry(toolbarRef.current),
+        prototype: elementDiagnosticGeometry(containerRef.current?.parentElement ?? null),
+        container: elementDiagnosticGeometry(containerRef.current),
+        canvasContainer: elementDiagnosticGeometry(containerRef.current?.querySelector('.maplibregl-canvas-container') ?? null),
+        canvas: elementDiagnosticGeometry(map.getCanvas()),
+        canvasBacking: { width: map.getCanvas().width, height: map.getCanvas().height }
+      });
+      const mutationMethods = [
+        'jumpTo', 'easeTo', 'flyTo', 'setCenter', 'setZoom', 'setPitch',
+        'setBearing', 'fitBounds', 'setPadding', 'resize'
+      ] as const;
+      let cameraMutationSequence = 0;
+      const pendingAnimatedCameraMutations = new globalThis.Map<number, TerrainDiagnosticRecord>();
+      for (const methodName of diagnosticMode ? mutationMethods : []) {
+        const instrumentedMap = map as unknown as Record<string, unknown>;
+        const nativeMethod = instrumentedMap[methodName];
+        if (typeof nativeMethod !== 'function') continue;
+        instrumentedMap[methodName] = (...args: unknown[]) => {
+          const before = cameraDiagnosticSnapshot(map);
+          const result = (nativeMethod as (...values: unknown[]) => unknown).apply(map, args);
+          const record = {
+            id: ++cameraMutationSequence,
+            at: Math.round(performance.now()),
+            method: methodName,
+            args: diagnosticArguments(args),
+            requestedTarget: serialisableDiagnosticValue(args[0]),
+            before,
+            after: cameraDiagnosticSnapshot(map),
+            caller: diagnosticStack(),
+            layout: layoutSnapshot()
+          };
+          boundedPush('cameraMutationHistory', record);
+          if (methodName === 'easeTo' || methodName === 'flyTo' || methodName === 'fitBounds') {
+            pendingAnimatedCameraMutations.set(record.id as number, record);
+          }
+          return result;
+        };
+      }
       const nativeTriggerRepaint = map.triggerRepaint.bind(map);
       map.triggerRepaint = () => {
         diagnostics.triggerRepaintCount = Number(diagnostics.triggerRepaintCount) + 1;
         return nativeTriggerRepaint();
       };
       map.on('render', () => { diagnostics.renderCount = Number(diagnostics.renderCount) + 1; });
-      map.on('resize', () => { diagnostics.resizeCount = Number(diagnostics.resizeCount) + 1; });
+      map.on('resize', event => {
+        diagnostics.resizeCount = Number(diagnostics.resizeCount) + 1;
+        boundedPush('transformEventHistory', { at: Math.round(performance.now()), type: event.type, camera: cameraDiagnosticSnapshot(map), layout: layoutSnapshot() });
+      });
+      for (const eventName of (diagnosticMode ? ['movestart', 'move', 'moveend', 'zoomstart', 'zoom', 'zoomend', 'pitchstart', 'pitch', 'pitchend', 'rotatestart', 'rotate', 'rotateend'] as const : [])) {
+        map.on(eventName, event => boundedPush('transformEventHistory', {
+          at: Math.round(performance.now()), type: event.type, camera: cameraDiagnosticSnapshot(map)
+        }));
+      }
+      const settleAnimatedCameraMutations = (settledBy: 'moveend' | 'idle') => {
+        for (const record of pendingAnimatedCameraMutations.values()) {
+          record.settledAt = Math.round(performance.now());
+          record.settledBy = settledBy;
+          record.settled = cameraDiagnosticSnapshot(map);
+        }
+        pendingAnimatedCameraMutations.clear();
+      };
+      if (diagnosticMode) {
+        map.on('moveend', () => settleAnimatedCameraMutations('moveend'));
+        map.on('idle', () => settleAnimatedCameraMutations('idle'));
+      }
       const host = containerRef.current.parentElement;
       map.on('movestart', () => { if (host) host.dataset.mapMoving = 'true'; });
       map.on('moveend', () => { if (host) host.dataset.mapMoving = 'false'; });
       map.on('idle', () => { if (host) host.dataset.mapIdleAt = String(performance.now()); });
       map.addControl(new NavigationControl({ visualizePitch: presentationProfile === 'full' }), 'top-right');
+
+      if (diagnosticMode) toolbarMutationObserver = new MutationObserver(records => boundedPush('toolbarLifecycle', {
+        at: Math.round(performance.now()),
+        cause: 'dom-mutation',
+        status: containerRef.current?.parentElement?.dataset.status ?? null,
+        message: toolbarRef.current?.querySelector('[aria-live="polite"]')?.textContent ?? null,
+        mutations: records.map(record => ({ type: record.type, attributeName: record.attributeName })),
+        layout: layoutSnapshot()
+      }));
+      if (diagnosticMode && toolbarRef.current) toolbarMutationObserver?.observe(toolbarRef.current, {
+        subtree: true, childList: true, characterData: true, attributes: true,
+        attributeFilter: ['class', 'data-status', 'style']
+      });
 
       const applySafePadding = (reason: 'initial' | 'toolbar-resize-observer') => {
         const padding = terrainViewportPadding(toolbarRef.current, presentationProfile);
@@ -659,8 +802,110 @@ export function TerrainMapPrototypeImpl({
       };
       applySafePadding('initial');
       if (typeof ResizeObserver !== 'undefined' && toolbarRef.current) {
-        toolbarResizeObserver = new ResizeObserver(() => applySafePadding('toolbar-resize-observer'));
+        toolbarResizeObserver = new ResizeObserver(entries => {
+          boundedPush('toolbarLifecycle', {
+            at: Math.round(performance.now()),
+            cause: 'resize-observer',
+            entries: entries.map(entry => ({ width: entry.contentRect.width, height: entry.contentRect.height })),
+            status: containerRef.current?.parentElement?.dataset.status ?? null,
+            layout: layoutSnapshot()
+          });
+          applySafePadding('toolbar-resize-observer');
+        });
         toolbarResizeObserver.observe(toolbarRef.current);
+      }
+
+      const instrumentedSourceCaches = new WeakSet<object>();
+      const campaignFrontsState = () => {
+        const internalStyle = (map as unknown as { style?: Record<string, unknown> }).style;
+        const caches = (internalStyle?.tileManagers ?? internalStyle?._sourceCaches ?? internalStyle?.sourceCaches) as Record<string, Record<string, unknown>> | undefined;
+        const matching = Object.entries(caches ?? {}).filter(([id]) => id.includes('campaign-fronts'));
+        return matching.map(([id, cache]) => {
+          const inViewTiles = cache._inViewTiles as { getAllTiles?: () => Array<{ state?: string }> } | undefined;
+          const tiles = inViewTiles?.getAllTiles?.() ?? Object.values(cache._tiles as Record<string, { state?: string }> ?? {});
+          return {
+            id,
+            loaded: typeof cache.loaded === 'function' ? (cache.loaded as () => boolean)() : null,
+            tileStates: tiles.reduce<Record<string, number>>((counts, tile) => {
+              const tileState = tile.state ?? 'unknown';
+              counts[tileState] = (counts[tileState] ?? 0) + 1;
+              return counts;
+            }, {})
+          };
+        });
+      };
+      let campaignFrontsWasLoaded = false;
+      let firstReloadAwaitingLoadedObservation = false;
+      const inspectCampaignFronts = (reason: string) => {
+        const state = campaignFrontsState();
+        const loaded = state.length > 0 && state.every(cache => cache.loaded === true);
+        if (campaignFrontsWasLoaded && !loaded && diagnostics.firstCampaignFrontsReload === null) {
+          const internal = map as unknown as Record<string, unknown>;
+          const internalStyle = internal.style as Record<string, unknown> | undefined;
+          diagnostics.firstCampaignFrontsReload = {
+            at: Math.round(performance.now()), reason, state,
+            camera: cameraDiagnosticSnapshot(map), layout: layoutSnapshot(),
+            dirtyFlags: Object.fromEntries(['_styleDirty', '_sourcesDirty', '_repaint', '_loaded'].map(key => [key, internal[key] ?? null])),
+            styleFlags: internalStyle ? Object.fromEntries(['_loaded', '_changed', '_layerOrderChanged', '_updatedSources'].map(key => [key, internalStyle[key] instanceof Set ? [...internalStyle[key] as Set<unknown>] : internalStyle[key] ?? null])) : null,
+            cameraMutationHistory: [...diagnostics.cameraMutationHistory as TerrainDiagnosticRecord[]],
+            sourceCacheHistory: [...diagnostics.sourceCacheHistory as TerrainDiagnosticRecord[]],
+            toolbarLifecycle: [...diagnostics.toolbarLifecycle as TerrainDiagnosticRecord[]]
+          };
+          firstReloadAwaitingLoadedObservation = true;
+          console.info('R3 campaign-fronts first reload diagnostic', JSON.stringify(diagnostics.firstCampaignFrontsReload));
+        }
+        const firstReload = diagnostics.firstCampaignFrontsReload as TerrainDiagnosticRecord | null;
+        if (firstReload && firstReloadAwaitingLoadedObservation && loaded) {
+          // Capture this observation synchronously: a later render/poll can have a
+          // different camera or cache state and would only give a coarse bound.
+          const loadedAt = performance.now();
+          const firstPostReloadLoaded = {
+            at: loadedAt,
+            wallClock: new Date().toISOString(),
+            reason,
+            camera: cameraDiagnosticSnapshot(map),
+            sourceState: state
+          };
+          firstReloadAwaitingLoadedObservation = false;
+          firstReload.firstPostReloadLoaded = firstPostReloadLoaded;
+          firstReload.settledAt = loadedAt;
+          firstReload.resettleDurationMs = loadedAt - Number(firstReload.at);
+          firstReload.settledReason = firstPostReloadLoaded.reason;
+          firstReload.settledCamera = firstPostReloadLoaded.camera;
+          firstReload.settledSourceState = firstPostReloadLoaded.sourceState;
+          console.info('R3 campaign-fronts first reload settled', JSON.stringify(firstReload));
+        }
+        campaignFrontsWasLoaded ||= loaded;
+      };
+      const instrumentCampaignFrontsCache = () => {
+        const internalStyle = (map as unknown as { style?: Record<string, unknown> }).style;
+        const caches = (internalStyle?.tileManagers ?? internalStyle?._sourceCaches ?? internalStyle?.sourceCaches) as Record<string, Record<string, unknown>> | undefined;
+        for (const [id, cache] of Object.entries(caches ?? {})) {
+          if (!id.includes('campaign-fronts') || instrumentedSourceCaches.has(cache)) continue;
+          instrumentedSourceCaches.add(cache);
+          for (const methodName of ['reload', 'update', 'load', 'resume', 'setTransform'] as const) {
+            const nativeMethod = cache[methodName];
+            if (typeof nativeMethod !== 'function') continue;
+            cache[methodName] = (...args: unknown[]) => {
+              const before = campaignFrontsState();
+              const result = (nativeMethod as (...values: unknown[]) => unknown).apply(cache, args);
+              boundedPush('sourceCacheHistory', {
+                at: Math.round(performance.now()), sourceCache: id, method: methodName, args: internalDiagnosticArguments(args),
+                before, after: campaignFrontsState(), camera: cameraDiagnosticSnapshot(map),
+                dirty: { mapStyle: (map as unknown as Record<string, unknown>)._styleDirty ?? null, mapSources: (map as unknown as Record<string, unknown>)._sourcesDirty ?? null },
+                caller: diagnosticStack()
+              });
+              return result;
+            };
+          }
+        }
+      };
+      if (diagnosticMode) {
+        map.on('sourcedata', event => {
+          instrumentCampaignFrontsCache();
+          if (event.sourceId === 'campaign-fronts') inspectCampaignFronts(`sourcedata:${event.sourceDataType ?? 'unknown'}`);
+        });
+        map.on('render', () => inspectCampaignFronts('render'));
       }
       let terrainMeshMode: 'physical' | 'strategic-flat' = 'physical';
       const updateOverlayLod = () => {
@@ -734,11 +979,18 @@ export function TerrainMapPrototypeImpl({
           if (host) host.dataset.physicalFormations = 'fallback';
         }
         loadedRef.current = true;
+        boundedPush('toolbarLifecycle', {
+          at: Math.round(performance.now()),
+          cause: 'map-load-react-status-transition',
+          from: { status: 'initialising', message: 'Initialising continuous terrain…' },
+          to: { status: 'ready', message: `${terrainSource.label} · ${presentationProfile === 'compact' ? 'compact terrain' : 'continuous relief'} · operational overlays projected from campaign state` },
+          layoutBeforeReactCommit: layoutSnapshot()
+        });
         setStatus('ready');
         setMessage(`${terrainSource.label} · ${presentationProfile === 'compact' ? 'compact terrain' : 'continuous relief'} · operational overlays projected from campaign state`);
       });
 
-      diagnosticTimers = [1_000, 5_000, 10_000, 20_000].map(delay => window.setTimeout(() => {
+      diagnosticTimers = diagnosticMode ? [1_000, 5_000, 10_000, 20_000].map(delay => window.setTimeout(() => {
         if (disposed) return;
         const sourceIds = [
           'r3-wp2b-land',
@@ -773,7 +1025,7 @@ export function TerrainMapPrototypeImpl({
           world: (window as typeof window & { __r3WorldMiniatures?: { objects: unknown[]; renderCount: number } }).__r3WorldMiniatures ?? null,
           geometry: { host: hostRect && { width: hostRect.width, height: hostRect.height }, canvas: { width: canvasRect.width, height: canvasRect.height, backingWidth: canvas.width, backingHeight: canvas.height } }
         }));
-      }, delay));
+      }, delay)) : [];
 
       map.on('error', event => {
         const runtimeError = classifyTerrainRuntimeError(event.error);
@@ -840,6 +1092,7 @@ export function TerrainMapPrototypeImpl({
       formationMiniaturesRef.current = null;
       worldMiniaturesRef.current = null;
       toolbarResizeObserver?.disconnect();
+      toolbarMutationObserver?.disconnect();
       cancelOperationalLayoutFrame?.();
       mapRef.current = null;
       delete (window as typeof window & { __r3TerrainMap?: Map }).__r3TerrainMap;
