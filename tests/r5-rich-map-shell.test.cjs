@@ -99,6 +99,12 @@ test('CI diagnostics isolate custom layers without weakening the full-scene gate
   assert.match(terrain, /sceneMode === 'formations' \|\| sceneMode === 'full'/);
   assert.match(terrain, /triggerRepaintCount/);
   assert.match(terrain, /dirtyFlags/);
+  assert.match(terrain, /paddingRequestCount/);
+  assert.match(terrain, /paddingSkippedCount/);
+  assert.match(terrain, /paddingHistory/);
+  assert.match(terrain, /if \(!changed\)[\s\S]*return;[\s\S]*map\.setPadding\(padding\)/);
+  assert.match(terrain, /applySafePadding\('initial'\)/);
+  assert.match(terrain, /applySafePadding\('toolbar-resize-observer'\)/);
 });
 
 test('terrain elevation readbacks are bounded and null retries are cached', () => {

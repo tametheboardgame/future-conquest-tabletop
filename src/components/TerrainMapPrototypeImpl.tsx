@@ -611,6 +611,9 @@ export function TerrainMapPrototypeImpl({
         renderCount: 0,
         resizeCount: 0,
         paddingCount: 0,
+        paddingRequestCount: 0,
+        paddingSkippedCount: 0,
+        paddingHistory: [],
         terrainMutationCount: 0
       };
       const nativeTriggerRepaint = map.triggerRepaint.bind(map);
@@ -626,13 +629,37 @@ export function TerrainMapPrototypeImpl({
       map.on('idle', () => { if (host) host.dataset.mapIdleAt = String(performance.now()); });
       map.addControl(new NavigationControl({ visualizePitch: presentationProfile === 'full' }), 'top-right');
 
-      const applySafePadding = () => {
+      const applySafePadding = (reason: 'initial' | 'toolbar-resize-observer') => {
+        const padding = terrainViewportPadding(toolbarRef.current, presentationProfile);
+        const current = map.getPadding();
+        const changed = current.top !== padding.top
+          || current.right !== padding.right
+          || current.bottom !== padding.bottom
+          || current.left !== padding.left;
+        const toolbarBounds = toolbarRef.current?.getBoundingClientRect();
+        const containerBounds = containerRef.current?.getBoundingClientRect();
+        diagnostics.paddingRequestCount = Number(diagnostics.paddingRequestCount) + 1;
+        const paddingHistory = diagnostics.paddingHistory as Array<Record<string, unknown>>;
+        paddingHistory.push({
+          at: Math.round(performance.now()),
+          reason,
+          changed,
+          padding,
+          current: { top: current.top, right: current.right, bottom: current.bottom, left: current.left },
+          toolbar: toolbarBounds ? { width: toolbarBounds.width, height: toolbarBounds.height } : null,
+          container: containerBounds ? { width: containerBounds.width, height: containerBounds.height } : null
+        });
+        if (paddingHistory.length > 20) paddingHistory.shift();
+        if (!changed) {
+          diagnostics.paddingSkippedCount = Number(diagnostics.paddingSkippedCount) + 1;
+          return;
+        }
         diagnostics.paddingCount = Number(diagnostics.paddingCount) + 1;
-        map.setPadding(terrainViewportPadding(toolbarRef.current, presentationProfile));
+        map.setPadding(padding);
       };
-      applySafePadding();
+      applySafePadding('initial');
       if (typeof ResizeObserver !== 'undefined' && toolbarRef.current) {
-        toolbarResizeObserver = new ResizeObserver(applySafePadding);
+        toolbarResizeObserver = new ResizeObserver(() => applySafePadding('toolbar-resize-observer'));
         toolbarResizeObserver.observe(toolbarRef.current);
       }
       let terrainMeshMode: 'physical' | 'strategic-flat' = 'physical';
@@ -881,12 +908,18 @@ export function TerrainMapPrototypeImpl({
   const goTo = (preset: TerrainCameraPreset) => {
     const profiled = terrainCameraForProfile(preset, presentationProfile);
     const center = preset.id === 'selected' && selectedCentre ? selectedCentre : profiled.center;
+    const padding = terrainViewportPadding(toolbarRef.current, presentationProfile);
+    const diagnostics = (window as typeof window & { __r3TerrainDiagnostics?: Record<string, unknown> }).__r3TerrainDiagnostics;
+    if (diagnostics) {
+      diagnostics.cameraMutationCount = Number(diagnostics.cameraMutationCount ?? 0) + 1;
+      diagnostics.lastCameraMutation = { at: Math.round(performance.now()), reason: `camera-preset:${preset.id}`, padding };
+    }
     mapRef.current?.easeTo({
       center: [center[0], center[1]],
       zoom: profiled.zoom,
       pitch: profiled.pitch,
       bearing: profiled.bearing,
-      padding: terrainViewportPadding(toolbarRef.current, presentationProfile),
+      padding,
       duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 850
     });
   };

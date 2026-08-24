@@ -21,3 +21,13 @@ The retained differences are deliberately narrow: `R5StartupExperience` supplies
 The exact-head gate keeps the production acceptance contract: plain Chromium and real pointer actions must reach `ready`, physical formations must render, MapLibre must report its map/style/tiles loaded, and the canvas must have usable geometry before the 60-second interaction window passes. The probe records pre-launch, post-launch, and ready host geometry plus time-series renderer/map counts and miniature/source activity; warning or fallback output is diagnostic only.
 
 Elevation sampling is the sole intentional renderer-level safety bound. Formation and world layers defer DEM reads until terrain reports loaded, admit at most one query per frame, and retain null-attempt timing so the R5 scene cannot turn unavailable DEM data into a synchronous readback storm. Renderer ownership, startup, and R5 gameplay authority remain unchanged.
+
+The production and R5 implementations compute identical viewport padding from the
+toolbar height and profile. The remaining integration hazard was that production's
+`ResizeObserver` callback unconditionally called `Map#setPadding`, even when a shell
+layout notification produced the same four values. R5 now compares all four edges
+with MapLibre's current padding before mutating the camera. Diagnostics retain every
+request (initial or toolbar observer), the old and proposed values, whether it was
+applied or skipped, and the toolbar/container dimensions. Camera-preset mutations
+are recorded separately. This keeps production geometry and camera behavior while
+preventing an equivalent late observer notification from retiling `campaign-fronts`.
