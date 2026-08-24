@@ -70,22 +70,29 @@ function diagnosticStack(): string[] {
   return (new Error().stack ?? '').split('\n').slice(2, 8).map(line => line.trim());
 }
 
-function serialisableDiagnosticValue(value: unknown, seen = new WeakSet<object>()): unknown {
+function serialisableDiagnosticValue(value: unknown, seen = new WeakSet<object>(), depth = 0): unknown {
   if (value === null || ['string', 'boolean', 'undefined'].includes(typeof value)) return value;
   if (typeof value === 'number') return Number.isFinite(value) ? value : String(value);
   if (typeof value !== 'object') return { type: typeof value };
+  if (depth >= 5) return { type: value.constructor?.name ?? 'Object', truncated: true };
   if (seen.has(value)) return { type: value.constructor?.name ?? 'Object', circular: true };
   seen.add(value);
-  if (Array.isArray(value)) return value.map(item => serialisableDiagnosticValue(item, seen));
+  if (Array.isArray(value)) return value.slice(0, 100).map(item => serialisableDiagnosticValue(item, seen, depth + 1));
   const record: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) {
-    if (typeof item !== 'function') record[key] = serialisableDiagnosticValue(item, seen);
+  for (const [key, item] of Object.entries(value).slice(0, 100)) {
+    if (typeof item !== 'function') record[key] = serialisableDiagnosticValue(item, seen, depth + 1);
   }
   return Object.keys(record).length > 0 ? record : { type: value.constructor?.name ?? 'Object' };
 }
 
 function diagnosticArguments(args: unknown[]): unknown[] {
   return args.map(value => serialisableDiagnosticValue(value));
+}
+
+function internalDiagnosticArguments(args: unknown[]): unknown[] {
+  return args.map(value => value === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof value)
+    ? value
+    : { type: value?.constructor?.name ?? typeof value });
 }
 
 function cameraDiagnosticSnapshot(map: Map): TerrainDiagnosticRecord {
@@ -870,7 +877,7 @@ export function TerrainMapPrototypeImpl({
               const before = campaignFrontsState();
               const result = (nativeMethod as (...values: unknown[]) => unknown).apply(cache, args);
               boundedPush('sourceCacheHistory', {
-                at: Math.round(performance.now()), sourceCache: id, method: methodName, args: diagnosticArguments(args),
+                at: Math.round(performance.now()), sourceCache: id, method: methodName, args: internalDiagnosticArguments(args),
                 before, after: campaignFrontsState(), camera: cameraDiagnosticSnapshot(map),
                 dirty: { mapStyle: (map as unknown as Record<string, unknown>)._styleDirty ?? null, mapSources: (map as unknown as Record<string, unknown>)._sourcesDirty ?? null },
                 caller: diagnosticStack()
