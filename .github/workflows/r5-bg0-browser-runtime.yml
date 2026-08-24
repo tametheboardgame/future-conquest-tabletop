@@ -35,6 +35,12 @@ jobs:
           exit 1
       - name: Exercise R5 campaign launch in Chromium
         run: node scripts/probe-r5-bg0-runtime.mjs
+      - name: Isolate custom-layer settlement paths
+        if: failure()
+        run: |
+          for mode in none world formations full; do
+            R5_DIAGNOSTIC_ONLY=1 R5_DIAGNOSTIC_SCENE_MODE="$mode" node scripts/probe-r5-bg0-runtime.mjs
+          done
       - name: Upload runtime evidence
         if: always()
         uses: actions/upload-artifact@v4

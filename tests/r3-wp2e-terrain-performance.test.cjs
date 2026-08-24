@@ -25,7 +25,8 @@ test('redundant zero-opacity relief DEM is gone while mesh and hillshade stay in
   const implementation = read('src/components/TerrainMapPrototypeImpl.tsx');
   assert.doesNotMatch(implementation, /r3-wp2b-relief-dem|color-relief-opacity/);
   assert.match(implementation, /'r3-wp2b-terrain-dem': demSource/);
-  assert.match(implementation, /'r3-wp2b-hillshade-dem': \{ \.\.\.demSource \}/);
+  assert.doesNotMatch(implementation, /'r3-wp2b-hillshade-dem':/);
+  assert.match(implementation, /id: 'r3-wp2b-hillshade'[\s\S]*?source: 'r3-wp2b-terrain-dem'/);
 });
 
 test('markers reconcile by stable identity and overlay source updates are isolated', () => {

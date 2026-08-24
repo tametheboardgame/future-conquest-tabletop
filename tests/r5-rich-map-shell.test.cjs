@@ -81,7 +81,24 @@ test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer a
   assert.match(probe, /canvasGeometry/);
   assert.match(probe, /formationElevationAttempts/);
   assert.match(probe, /sourceUpdates/);
+  assert.match(probe, /R5 periodic readiness/);
+  assert.match(probe, /R5_DIAGNOSTIC_SCENE_MODE/);
   assert.match(probe, /screenshot/);
+});
+
+test('CI diagnostics isolate custom layers without weakening the full-scene gate', () => {
+  const workflow = readFileSync('.github/workflows/r5-bg0-browser-runtime.yml', 'utf8');
+  const probe = readFileSync('scripts/probe-r5-bg0-runtime.mjs', 'utf8');
+  assert.match(workflow, /none world formations full/);
+  assert.match(workflow, /if: failure\(\)/);
+  assert.match(probe, /r5Scene/);
+  assert.match(probe, /r5Diagnostic/);
+  assert.match(terrain, /query\.get\('r5Diagnostic'\) === '1'/);
+  assert.match(terrain, /: 'full'/);
+  assert.match(terrain, /sceneMode === 'world' \|\| sceneMode === 'full'/);
+  assert.match(terrain, /sceneMode === 'formations' \|\| sceneMode === 'full'/);
+  assert.match(terrain, /triggerRepaintCount/);
+  assert.match(terrain, /dirtyFlags/);
 });
 
 test('terrain elevation readbacks are bounded and null retries are cached', () => {
