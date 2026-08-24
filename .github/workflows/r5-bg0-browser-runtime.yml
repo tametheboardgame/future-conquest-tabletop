@@ -2,7 +2,7 @@ name: R5 BG0 browser runtime gate
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, r5/bg0-hardware-safe-board-hotfix]
   workflow_dispatch:
 
 permissions:
