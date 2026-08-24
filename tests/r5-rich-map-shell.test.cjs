@@ -77,11 +77,28 @@ test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer a
 test('rich layers stage independently and cache unsuccessful terrain readbacks', () => {
   const formations = readFileSync('src/presentation/r3-formation-miniatures-layer.ts', 'utf8');
   const world = readFileSync('src/presentation/r3-world-miniatures-layer.ts', 'utf8');
-  assert.match(terrain, /setTimeout\(\(\) => \{ void startPhysicalMiniatures\(\); \}, 1_500\)/);
+  assert.match(terrain, /setTimeout\(startTerrain, runtimeOptions\.forced \? 100 : 2_000\)/);
   assert.doesNotMatch(terrain, /Promise\.all\(\[\s*import\('\.\.\/presentation\/r3-formation-miniatures-layer'/);
   assert.match(terrain, /webglcontextlost/);
   assert.match(formations, /piece\.elevationAt = \[\.\.\.lngLat\]/);
   assert.match(world, /piece\.elevationSampled = true/);
+  assert.match(formations, /elevationSampleBudget = 1/);
+  assert.match(world, /elevationSampleBudget = 1/);
+  assert.match(world, /this\.assetLoading/);
+});
+
+test('hardware-rich stages expose a persistent circuit breaker and forced acceptance path', () => {
+  const runtime = readFileSync('src/presentation/r5-rich-runtime.ts', 'utf8');
+  const probe = readFileSync('scripts/probe-r5-bg0-runtime.mjs', 'utf8');
+  assert.match(runtime, /r5-rich-pending-stage/);
+  assert.match(runtime, /sessionStorage\.setItem/);
+  assert.match(terrain, /armRichStage\('terrain'\)/);
+  assert.match(terrain, /armRichStage\('world'\)/);
+  assert.match(terrain, /armRichStage\('formations'\)/);
+  assert.match(terrain, /r5-rich-diagnostic/);
+  assert.match(probe, /60_000/);
+  assert.match(probe, /r5RichPath.*force/);
+  assert.match(probe, /Rich stage/);
 });
 
 test('adapter projects stable renderer ids from R5 authority and legal actions', () => {

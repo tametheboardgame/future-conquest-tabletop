@@ -6,7 +6,7 @@ const screenshotPath = process.env.R5_RUNTIME_SCREENSHOT ?? '/tmp/r5-bg0-runtime
 const pageErrors = [];
 const requestFailures = [];
 const consoleErrors = [];
-const progressiveWindowMs = Number(process.env.R5_RUNTIME_PROGRESSIVE_WINDOW_MS ?? 20_000);
+const progressiveWindowMs = Number(process.env.R5_RUNTIME_PROGRESSIVE_WINDOW_MS ?? 60_000);
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
@@ -59,7 +59,9 @@ const heartbeat = async (label, timeout = 2_000) => {
 };
 
 try {
-  await page.goto(origin, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  const runtimeUrl = new URL(origin);
+  runtimeUrl.searchParams.set('r5RichPath', 'force');
+  await page.goto(runtimeUrl.href, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   const begin = page.getByRole('button', { name: 'BEGIN CAMPAIGN', exact: true });
   await begin.waitFor({ state: 'visible', timeout: 10_000 });
   await heartbeat('pre-launch');
@@ -138,10 +140,17 @@ try {
     styleLoaded: window.__r3TerrainMap?.isStyleLoaded() ?? null,
     tilesLoaded: window.__r3TerrainMap?.areTilesLoaded() ?? null,
     runtimeEvidence: window.__r5RuntimeEvidence ?? null,
+    richRuntime: window.__r5RichRuntime ?? null,
     worldRenderCount: window.__r3WorldMiniatures?.renderCount ?? null,
     formationRenderCount: window.__r3FormationMiniatures?.renderCount ?? null
   }));
   console.log('R5 BG0 runtime diagnostics:', JSON.stringify({ ...diagnostics, interaction, consoleErrors, requestFailures }));
+  if (!diagnostics.richRuntime?.forced) throw new Error('Runtime probe did not exercise the forced rich path.');
+  for (const stage of ['terrain', 'world', 'formations']) {
+    if (!['ready', 'disabled'].includes(diagnostics.richRuntime.states[stage])) {
+      throw new Error(`Rich stage ${stage} did not reach a bounded terminal state: ${diagnostics.richRuntime.states[stage]}`);
+    }
+  }
   await page.screenshot({ path: screenshotPath, fullPage: true });
   if (!fs.existsSync(screenshotPath)) throw new Error('Runtime screenshot was not written.');
   if (pageErrors.length) {

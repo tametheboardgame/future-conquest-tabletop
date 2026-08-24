@@ -51,6 +51,15 @@ import type { TerrainOperationalLayers } from '../presentation/r3-terrain-operat
 import type { FormationMiniaturesLayer } from '../presentation/r3-formation-miniatures-layer';
 import type { WorldMiniaturesLayer } from '../presentation/r3-world-miniatures-layer';
 import { R5_GAME_REVEALED_EVENT } from '../tabletop/launch-transition';
+import {
+  armRichStage,
+  clearRichStageArm,
+  initialRichStageStates,
+  richRuntimeOptions,
+  settleRichStage,
+  type R5RichRuntimeDiagnostic,
+  type R5RichStage
+} from '../presentation/r5-rich-runtime';
 
 const R3_FORMATION_MINIATURE_LAYER_ID = 'r3-wp3-5-formation-miniatures';
 const R3_WORLD_MINIATURE_LAYER_ID = 'r3-wp3-5-world-miniatures';
@@ -508,6 +517,9 @@ export function TerrainMapPrototypeImpl({
   const [status, setStatus] = useState<PrototypeStatus>('initialising');
   const [message, setMessage] = useState('Initialising continuous terrain…');
   const [sourceAttribution, setSourceAttribution] = useState(COPERNICUS_ATTRIBUTION);
+  const [richDiagnostic, setRichDiagnostic] = useState<R5RichRuntimeDiagnostic>(() => ({
+    forced: false, stage: 'terrain', states: initialRichStageStates(), detail: 'Stable political map starting'
+  }));
 
   selectRef.current = onSelect;
   selectGroupRef.current = onSelectGroup;
@@ -558,6 +570,43 @@ export function TerrainMapPrototypeImpl({
     let revealFrame: number | undefined;
     let readinessDiagnostic: number | undefined;
     const richLayerTimers: number[] = [];
+    const runtimeOptions = richRuntimeOptions();
+    const stageStates = initialRichStageStates();
+    const publishStage = (stage: R5RichStage, state: R5RichRuntimeDiagnostic['states'][R5RichStage], detail: string, heartbeatMs?: number) => {
+      stageStates[stage] = state;
+      const diagnostic = { forced: runtimeOptions.forced, stage, states: { ...stageStates }, detail, heartbeatMs };
+      window.__r5RichRuntime = diagnostic;
+      setRichDiagnostic(diagnostic);
+      const host = containerRef.current?.parentElement;
+      if (host) {
+        host.dataset.richStage = stage;
+        host.dataset.richStageState = state;
+      }
+    };
+    const afterResponsiveFrames = (stage: R5RichStage, onReady: () => void, onFailure: () => void) => {
+      const started = performance.now();
+      let watchdog = window.setTimeout(() => {
+        const elapsed = performance.now() - started;
+        if (elapsed > 2_500) {
+          publishStage(stage, 'disabled', `${stage} exceeded the responsiveness budget`, elapsed);
+          onFailure();
+          return;
+        }
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const heartbeatMs = performance.now() - started;
+          if (heartbeatMs > 2_500) {
+            publishStage(stage, 'disabled', `${stage} heartbeat was ${Math.round(heartbeatMs)}ms`, heartbeatMs);
+            onFailure();
+          }
+          else {
+            settleRichStage(stage);
+            publishStage(stage, 'ready', `${stage} ready`, heartbeatMs);
+            onReady();
+          }
+        }));
+      }, runtimeOptions.forced ? 100 : 1_250);
+      richLayerTimers.push(watchdog);
+    };
     const resizeAfterReveal = () => {
       if (revealFrame !== undefined) window.cancelAnimationFrame(revealFrame);
       revealFrame = window.requestAnimationFrame(() => {
@@ -641,7 +690,8 @@ export function TerrainMapPrototypeImpl({
         }
         // Restore relief for normal campaign/local views after style load;
         // theatre overview remains flat to keep wide-area navigation cheap.
-        const nextMode = map.getZoom() < 4.8 ? 'strategic-flat' : 'physical';
+        const terrainReady = stageStates.terrain === 'ready';
+        const nextMode = !terrainReady || map.getZoom() < 4.8 ? 'strategic-flat' : 'physical';
         if (nextMode !== terrainMeshMode) {
           // Keep the DEM source attached in Theatre so MapLibre can retain its
           // terrain tile cache across Theatre -> Campaign/Selected transitions.
@@ -689,22 +739,38 @@ export function TerrainMapPrototypeImpl({
             // Import and attach each shared-context Three.js layer in a separate
             // task. Compiling both scenes in the same MapLibre frame caused a
             // large hardware-WebGL spike after the shell had already painted.
+            if (runtimeOptions.disabled.has('world')) {
+              publishStage('world', 'disabled', 'world miniatures disabled by circuit breaker');
+              return;
+            }
+            armRichStage('world');
+            publishStage('world', 'arming', 'Starting bounded world miniatures');
             const { WorldMiniaturesLayer } = await import('../presentation/r3-world-miniatures-layer');
             if (disposed) return;
             const worldLayer = new WorldMiniaturesLayer(layersRef.current);
             map.addLayer(worldLayer);
             worldMiniaturesRef.current = worldLayer;
-            await new Promise<void>(resolve => {
-              const timer = window.setTimeout(resolve, 750);
-              richLayerTimers.push(timer);
+            afterResponsiveFrames('world', () => { void (async () => {
+              if (disposed || runtimeOptions.disabled.has('formations')) {
+                if (runtimeOptions.disabled.has('formations')) publishStage('formations', 'disabled', 'formation miniatures disabled by circuit breaker');
+                return;
+              }
+              armRichStage('formations');
+              publishStage('formations', 'arming', 'Starting bounded formation miniatures');
+              const { FormationMiniaturesLayer } = await import('../presentation/r3-formation-miniatures-layer');
+              if (disposed) return;
+              const miniatureLayer = new FormationMiniaturesLayer(stateRef.current, layersRef.current);
+              map.addLayer(miniatureLayer);
+              formationMiniaturesRef.current = miniatureLayer;
+              afterResponsiveFrames('formations', () => { if (host) host.dataset.physicalFormations = 'ready'; }, () => {
+                if (map.getLayer(R3_FORMATION_MINIATURE_LAYER_ID)) map.removeLayer(R3_FORMATION_MINIATURE_LAYER_ID);
+                formationMiniaturesRef.current = null;
+                if (host) host.dataset.physicalFormations = 'fallback';
+              });
+            })(); }, () => {
+              if (map.getLayer(R3_WORLD_MINIATURE_LAYER_ID)) map.removeLayer(R3_WORLD_MINIATURE_LAYER_ID);
+              worldMiniaturesRef.current = null;
             });
-            if (disposed) return;
-            const { FormationMiniaturesLayer } = await import('../presentation/r3-formation-miniatures-layer');
-            if (disposed) return;
-            const miniatureLayer = new FormationMiniaturesLayer(stateRef.current, layersRef.current);
-            map.addLayer(miniatureLayer);
-            formationMiniaturesRef.current = miniatureLayer;
-            if (host) host.dataset.physicalFormations = 'ready';
           } catch (error) {
             // Terrain remains usable through the established DOM formation layer.
             console.warn('R3 physical formation layer unavailable; retaining compatible markers.', error);
@@ -714,9 +780,26 @@ export function TerrainMapPrototypeImpl({
           }
         };
         map.on('zoomend', startPhysicalMiniatures);
-        // Preserve the normal campaign presentation, but give terrain and the
-        // command tray a bounded quiet window before rich scene compilation.
-        richLayerTimers.push(window.setTimeout(() => { void startPhysicalMiniatures(); }, 1_500));
+        const startTerrain = () => {
+          if (runtimeOptions.disabled.has('terrain')) {
+            publishStage('terrain', 'disabled', 'Terrain relief disabled by previous incomplete hardware stage');
+            void startPhysicalMiniatures();
+            return;
+          }
+          armRichStage('terrain');
+          publishStage('terrain', 'arming', 'Starting physical terrain relief');
+          // The only place that enables DEM mesh work. Never toggle it from a
+          // continuously firing map render callback.
+          stageStates.terrain = 'ready';
+          updateTerrainMeshLod();
+          afterResponsiveFrames('terrain', () => { void startPhysicalMiniatures(); }, () => {
+            map.setTerrain(null);
+            terrainMeshMode = 'strategic-flat';
+            if (host) host.dataset.terrainRelief = 'strategic-flat';
+            void startPhysicalMiniatures();
+          });
+        };
+        richLayerTimers.push(window.setTimeout(startTerrain, runtimeOptions.forced ? 100 : 2_000));
       });
 
       const canvas = map.getCanvas();
@@ -809,6 +892,7 @@ export function TerrainMapPrototypeImpl({
 
     return () => {
       disposed = true;
+      clearRichStageArm();
       loadedRef.current = false;
       removeTerrainOperationalMarkers(operationalMarkersRef.current);
       operationalMarkersRef.current = [];
@@ -829,6 +913,7 @@ export function TerrainMapPrototypeImpl({
       delete (window as typeof window & { __r3StrategicNodes?: typeof STRATEGIC_NODES }).__r3StrategicNodes;
       delete (window as typeof window & { __r3TerritoryCentres?: typeof terrainOperationalTerritoryCentres }).__r3TerritoryCentres;
       ownedMap?.remove();
+      delete window.__r5RichRuntime;
     };
     // This host deliberately creates one renderer instance; campaign overlays
     // update through GeoJSON sources below rather than recreating the map.
@@ -927,6 +1012,9 @@ export function TerrainMapPrototypeImpl({
         </details>
       </div>
     </div>
+    <output className="r5-rich-diagnostic" aria-live="polite" data-stage={richDiagnostic.stage} data-state={richDiagnostic.states[richDiagnostic.stage]}>
+      RICH {richDiagnostic.stage.toUpperCase()} · {richDiagnostic.states[richDiagnostic.stage].toUpperCase()} · {richDiagnostic.detail}
+    </output>
     <div
       ref={containerRef}
       className="r3-terrain-prototype-canvas"

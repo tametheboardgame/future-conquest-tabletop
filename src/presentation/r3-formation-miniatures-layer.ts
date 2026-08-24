@@ -490,12 +490,17 @@ export class FormationMiniaturesLayer implements CustomLayerInterface {
     const lod = miniatureLodForZoom(zoom);
     const presentationWithheld = document.documentElement.dataset.r3WithholdFormations === 'true';
     const browserPieces: FormationMiniatureBrowserEvidence['pieces'] = [];
+    // queryTerrainElevation can synchronously enter MapLibre's DEM pipeline.
+    // Sample at most one moving piece per map frame; all others retain their
+    // last safe elevation rather than multiplying hardware readback pressure.
+    let elevationSampleBudget = 1;
     for (const [id, piece] of this.pieces) {
       const elapsed = now - piece.startedAt;
       piece.current = this.reducedMotion ? piece.target : interpolateFormationPresentation(piece.from, piece.target, elapsed);
       animating ||= !this.reducedMotion && elapsed < FORMATION_PRESENTATION_ANIMATION_MS;
       const lngLat: [number, number] = [piece.current[0], piece.current[1]];
-      if (needsElevationSample(piece, lngLat)) {
+      if (elevationSampleBudget > 0 && needsElevationSample(piece, lngLat)) {
+        elevationSampleBudget -= 1;
         const sampledElevation = this.map.queryTerrainElevation(lngLat);
         // Null is still a completed sample. Retrying the synchronous terrain
         // readback every render frame while DEM tiles settle can freeze the UI.
