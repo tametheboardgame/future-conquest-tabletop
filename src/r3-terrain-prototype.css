@@ -565,3 +565,19 @@
   outline: 2px solid #eaff78;
   outline-offset: 3px;
 }
+.r5-rich-diagnostic {
+  position: absolute;
+  z-index: 5;
+  left: 18px;
+  bottom: 18px;
+  max-width: min(520px, calc(100% - 390px));
+  padding: 6px 9px;
+  border: 1px solid rgba(113, 205, 210, .35);
+  background: rgba(5, 20, 26, .88);
+  color: #9fc5c7;
+  font: 8px/1.35 IBM Plex Mono, monospace;
+  letter-spacing: .08em;
+  pointer-events: none;
+}
+
+.r5-rich-diagnostic[data-state='disabled'] { border-color: #d5ad59; color: #f0ce88; }

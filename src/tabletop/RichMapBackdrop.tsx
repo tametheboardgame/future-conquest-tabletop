@@ -42,12 +42,13 @@ export function RichMapBackdrop(props: Props) {
           // Keep a short, bounded interaction window for the newly revealed
           // shell before optional GPU work starts.
           delay = window.setTimeout(() => {
+            const forceRichPath = new URLSearchParams(window.location.search).get('r5RichPath') === 'force';
             const canvas = document.createElement('canvas');
             const gl = canvas.getContext('webgl');
             const debug = gl?.getExtension('WEBGL_debug_renderer_info');
             const renderer = debug ? String(gl?.getParameter(debug.UNMASKED_RENDERER_WEBGL) ?? '') : '';
             gl?.getExtension('WEBGL_lose_context')?.loseContext();
-            if (/swiftshader|software/i.test(renderer)) {
+            if (!forceRichPath && /swiftshader|software/i.test(renderer)) {
               console.warn(`Software WebGL renderer detected (${renderer}); using the stable command map.`);
               setAvailable(false);
               return;

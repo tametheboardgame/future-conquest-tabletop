@@ -190,6 +190,7 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
   private layers: TerrainOperationalLayers;
   private renderCount = 0;
   private disposed = false;
+  private assetLoading = false;
 
   constructor(layers: TerrainOperationalLayers) {
     this.layers = layers;
@@ -227,7 +228,10 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
   }
 
   private ensureAuthoredAsset(piece: WorldPiece) {
-    if (!piece.asset || piece.assetStatus === 'loading' || piece.assetStatus === 'ready') return;
+    // Serialise decode and first texture/buffer upload. Starting every visible
+    // GLTF in the same custom-layer frame produced an unbounded GPU upload burst.
+    if (this.assetLoading || !piece.asset || piece.assetStatus === 'loading' || piece.assetStatus === 'ready') return;
+    this.assetLoading = true;
     piece.assetStatus = 'loading';
     const asset = piece.asset;
     void gltfLoader()
@@ -249,6 +253,11 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
         piece.assetStatus = 'error';
         console.warn(`R3 landmark miniature failed to load ${asset.assetId}; retaining procedural fallback.`, error);
         this.map?.triggerRepaint();
+      })
+      .finally(() => {
+        this.assetLoading = false;
+        // Advance at most one queued authored model on a later task/frame.
+        if (!this.disposed) window.setTimeout(() => this.map?.triggerRepaint(), 250);
       });
   }
 
@@ -257,6 +266,7 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
     const zoom = this.map.getZoom();
     const lod: WorldLod = zoom < 4.8 ? 'theatre' : zoom < 6.4 ? 'campaign' : 'selected';
     const evidence: WorldMiniatureEvidence['objects'] = [];
+    let elevationSampleBudget = 1;
 
     for (const piece of this.pieces) {
       const enabled = piece.kind === 'port' ? this.layers.ports
@@ -278,7 +288,8 @@ export class WorldMiniaturesLayer implements CustomLayerInterface {
 
       // Do not request terrain data for culled pieces. This preserves the WP2E
       // network/performance boundary while still grounding every visible piece.
-      if (rootVisible && !piece.elevationSampled) {
+      if (rootVisible && !piece.elevationSampled && elevationSampleBudget > 0) {
+        elevationSampleBudget -= 1;
         const sampledElevation = this.map.queryTerrainElevation([piece.node.position[0], piece.node.position[1]]);
         piece.elevationSampled = true;
         if (sampledElevation !== null) piece.elevation = sampledElevation;
