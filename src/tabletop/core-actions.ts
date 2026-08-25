@@ -1,5 +1,13 @@
 import { CENTRAL_FRONT_BOARD, adjacentRegionIds, connectionsForRegion, type TabletopBoardDefinition } from './board';
-import { spendCommandAction } from './command-phase';
+import { createCommandRound, refreshCommandPhase, spendCommandAction } from './command-phase';
+import {
+  TABLETOP_COMMAND_SEAT_IDS,
+  commandSeatForPiece,
+  createDefaultCommandSeats,
+  createEmptyCommandHands,
+  hasCompleteCommandSeatSet,
+  seatOwnsPiece
+} from './command-seats';
 import { previewCombat, resolveCombat, type CombatPreview, type CombatResolution } from './combat';
 import { CENTRAL_FRONT_PROTOTYPE_FORCE } from './pieces';
 import {
@@ -24,7 +32,6 @@ export interface CoreActionResult {
   ok: boolean;
   state: TabletopGameState;
   reason: string;
-  /** Present only for a successful attack; this is the exact rules-layer result, not a UI reroll. */
   combat?: CombatResolution;
 }
 
@@ -53,41 +60,39 @@ export function createTabletopGame(): TabletopGameState {
   pieces['ff-engineer-cohort-piece'] = { ...pieces['ff-engineer-cohort-piece'], supply: 'strained' };
   return {
     version: TABLETOP_STATE_VERSION, rulesVersion: TABLETOP_RULES_VERSION, mode: 'tabletop',
-    scenario: { scenarioId: CENTRAL_FRONT_BOARD.id, objectiveState: {}, tracks: { scenarioActions: 0 } },
-    random: { algorithm: 'fc-tabletop-prng-v1', seed: 1, cursor: 0 },
-    seats: {
-      'future-seat': { id: 'future-seat', factionId: 'future-force', controller: { type: 'human', localPlayer: 0 } },
-      'coalition-seat': { id: 'coalition-seat', factionId: 'present-day-coalition', controller: { type: 'human', localPlayer: 1 } }
+    scenario: {
+      scenarioId: CENTRAL_FRONT_BOARD.id,
+      objectiveState: {
+        portalRegionId: 'carpathian-portal',
+        portalStatus: 'active',
+        strategicObjectiveCount: CENTRAL_FRONT_BOARD.objectives.length
+      },
+      tracks: { scenarioActions: 0 }
     },
+    random: { algorithm: 'fc-tabletop-prng-v1', seed: 1, cursor: 0 },
+    seats: createDefaultCommandSeats(),
     factions: {
       'future-force': { id: 'future-force', seatId: 'future-seat' },
       'present-day-coalition': { id: 'present-day-coalition', seatId: 'coalition-seat' }
     },
-    round: (awaitCommandRound()), actionWindow: { type: 'none' },
+    round: refreshCommandPhase(createCommandRound()), actionWindow: { type: 'none' },
     board: {
       regions, pieces,
       routes: Object.fromEntries(CENTRAL_FRONT_BOARD.connections.map((route) => [route.id, { id: route.id, status: route.id === 'r38' ? 'damaged' as const : 'intact' as const }]))
     },
-    cards: { instances: {}, drawPile: [], discardPile: [], hands: { 'future-seat': [], 'coalition-seat': [] }, removedFromGame: [] },
+    cards: { instances: {}, drawPile: [], discardPile: [], hands: createEmptyCommandHands(), removedFromGame: [] },
     status: 'playing'
-  };
-}
-
-function awaitCommandRound() {
-  return {
-    round: 1, maxRounds: CENTRAL_FRONT_BOARD.maxRounds, phase: 'command' as const,
-    initiativeSeatId: 'future-seat', activeSeatId: 'future-seat',
-    commandActionsRemaining: { 'future-seat': 4, 'coalition-seat': 4 }, passedSeatIds: [], consecutivePasses: 0, actionSequence: 0
   };
 }
 
 export function legalTargets(state: TabletopGameState, type: CoreActionType, pieceId?: string, rules = DEFAULT_CORE_ACTION_RULES): string[] {
   if (state.round.phase !== 'command') return [];
-  const faction = factionForSeat(state, state.round.activeSeatId);
+  const activeSeatId = state.round.activeSeatId;
+  const faction = factionForSeat(state, activeSeatId);
   const piece = pieceId ? state.board.pieces[pieceId] : undefined;
-  if (piece && (piece.kind !== 'formation' || piece.factionId !== faction)) return [];
+  if (piece && (piece.kind !== 'formation' || piece.factionId !== faction || !seatOwnsPiece(activeSeatId, piece.id))) return [];
   if (type === 'scenario') return rules.board.objectives.filter((objective) => piecesIn(state, objective.regionId).some((p) => p.factionId === faction)
-    && state.scenario.objectiveState[`secured:${state.round.activeSeatId}:${objective.regionId}`] !== true).map((objective) => objective.regionId);
+    && state.scenario.objectiveState[`secured:${activeSeatId}:${objective.regionId}`] !== true).map((objective) => objective.regionId);
   if (!piece) return [];
   if (type === 'move') return adjacentRegionIds(rules.board, piece.regionId).filter((id) => !piecesIn(state, id).some((p) => p.factionId !== faction));
   if (type === 'attack') return adjacentRegionIds(rules.board, piece.regionId).filter((id) => piecesIn(state, id).some((p) => p.factionId !== faction));
@@ -99,11 +104,13 @@ export function legalTargets(state: TabletopGameState, type: CoreActionType, pie
 
 export function dispatchCoreAction(state: TabletopGameState, request: CoreActionRequest, rules = DEFAULT_CORE_ACTION_RULES): CoreActionResult {
   const fail = (reason: string): CoreActionResult => ({ ok: false, state, reason });
-  if (request.seatId !== state.round.activeSeatId) return fail('It is not this seat’s activation.');
+  if (request.seatId !== state.round.activeSeatId) return fail('It is not this command seat’s activation.');
   const faction = factionForSeat(state, request.seatId);
-  if (!faction) return fail('Unknown seat.');
+  if (!faction) return fail('Unknown command seat.');
   const piece = 'pieceId' in request ? state.board.pieces[request.pieceId] : undefined;
-  if ('pieceId' in request && (!piece || piece.kind !== 'formation' || piece.factionId !== faction)) return fail('Select a formation owned by the current side.');
+  if ('pieceId' in request && (!piece || piece.kind !== 'formation' || piece.factionId !== faction || !seatOwnsPiece(request.seatId, request.pieceId))) {
+    return fail('Select a formation owned by the current command.');
+  }
   const target = request.type === 'move' || request.type === 'attack' ? request.targetRegionId
     : request.type === 'engineer' ? request.routeId : request.type === 'scenario' ? request.regionId : request.pieceId;
   if (!legalTargets(state, request.type, piece?.id, rules).includes(target)) return fail('That target is not legal for the selected action.');
@@ -148,9 +155,19 @@ export function dispatchCoreAction(state: TabletopGameState, request: CoreAction
   return { ok: true, state: next, reason, ...(combat ? { combat } : {}) };
 }
 
+export function commandSeatForFormation(pieceId: string): TabletopSeatId | null {
+  return commandSeatForPiece(pieceId);
+}
+
 export function serializeTabletopGame(state: TabletopGameState): string { return JSON.stringify(createTabletopSaveEnvelope(state)); }
 export function resumeTabletopGame(serialized: string): TabletopGameState {
   const envelope: unknown = JSON.parse(serialized);
   if (!isTabletopSaveEnvelope(envelope)) throw new Error('Invalid tabletop save.');
+  if (!hasCompleteCommandSeatSet(envelope.state.seats)) throw new Error('Legacy two-seat save is not valid for BG1 command authority.');
+  const actionKeys = Object.keys(envelope.state.round.commandActionsRemaining);
+  if (actionKeys.length !== TABLETOP_COMMAND_SEAT_IDS.length
+    || !TABLETOP_COMMAND_SEAT_IDS.every((seatId) => actionKeys.includes(seatId))) {
+    throw new Error('Invalid BG1 command-seat action state.');
+  }
   return structuredClone(envelope.state);
 }
