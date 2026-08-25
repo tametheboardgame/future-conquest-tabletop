@@ -18,7 +18,7 @@ Coalition:
 
 Human/AI assignment is stored on each seat as a controller property. It does not alter faction identity, formation ownership, force balance or command capacity.
 
-The default two-player setup assigns Future Alpha to local player 0 and Western Command to local player 1. The other four seats use the standard AI controller. BG9 may reassign any of the same six seats to additional humans without changing the scenario.
+The default two-player setup assigns all three Future commands to local player 0 and all three Coalition commands to local player 1. Later setup may reassign any individual command to another human or an AI controller without changing the scenario, formation ownership or command capacity.
 
 ## Temporary pre-BG2 action budget
 
@@ -30,7 +30,7 @@ This is deliberately temporary. BG2 replaces the allocation with one command die
 
 Every visible formation piece is explicitly assigned to one permanent command seat in `src/tabletop/command-seats.ts`. Core actions reject a formation if it belongs to the correct faction but the wrong active command.
 
-The mapping is independent of controller assignment. Changing a seat from AI to Human cannot move formations between commands or change available force capacity.
+The mapping is independent of controller assignment. Changing a seat from Human to AI, or between human players, cannot move formations between commands or change available force capacity.
 
 ## Scenario authority
 
@@ -38,7 +38,7 @@ The board-game state remains authoritative for:
 - the eight-round campaign limit;
 - active command seat and deterministic activation sequence;
 - formation positions and combat state;
-- strategic objective definitions and control actions;
+- strategic objective definitions and faction-level control actions;
 - the Carpathian Portal state;
 - deterministic PRNG state;
 - save/resume at action boundaries.
@@ -64,6 +64,7 @@ BG1 is complete when:
 - exactly six command seats exist in new game state;
 - each side always has exactly three commands;
 - Human/AI assignment is independent from command identity;
+- the default two-player setup gives one human all Future commands and one human all Coalition commands;
 - the same forces and temporary action capacity exist regardless of controller assignment;
 - every formation belongs to exactly one command;
 - side activations alternate deterministically through command seats;
