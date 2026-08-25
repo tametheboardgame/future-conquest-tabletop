@@ -50,6 +50,7 @@ import { createCoalescedFrameTask } from '../presentation/r3-coalesced-frame-tas
 import type { TerrainOperationalLayers } from '../presentation/r3-terrain-operational-markers';
 import type { FormationMiniaturesLayer } from '../presentation/r3-formation-miniatures-layer';
 import type { WorldMiniaturesLayer } from '../presentation/r3-world-miniatures-layer';
+import type { R5TerrainCoreDiagnosticMode } from '../tabletop/r5-hardware-diagnostic';
 
 const R3_FORMATION_MINIATURE_LAYER_ID = 'r3-wp3-5-formation-miniatures';
 const R3_WORLD_MINIATURE_LAYER_ID = 'r3-wp3-5-world-miniatures';
@@ -62,6 +63,8 @@ export interface TerrainMapPrototypeProps {
   presentationProfile?: Exclude<TerrainPresentationProfile, 'svg-fallback'>;
   /** Explicit opt-in scene isolation for the R5 hardware diagnostic. */
   diagnosticScene?: TerrainDiagnosticScene;
+  /** Diagnostic-only selection of the base terrain subsystems to construct. */
+  terrainCoreDiagnosticMode?: R5TerrainCoreDiagnosticMode;
 }
 
 export type TerrainDiagnosticScene = 'none' | 'world' | 'formations' | 'full';
@@ -239,10 +242,18 @@ function mapStyle(
   frontData: GeoJSONSourceSpecification['data'],
   routeData: GeoJSONSourceSpecification['data'],
   nodeData: GeoJSONSourceSpecification['data'],
-  demSource: RasterDEMSourceSpecification,
-  presentationProfile: Exclude<TerrainPresentationProfile, 'svg-fallback'>
+  demSource: RasterDEMSourceSpecification | undefined,
+  presentationProfile: Exclude<TerrainPresentationProfile, 'svg-fallback'>,
+  terrainCoreDiagnosticMode?: R5TerrainCoreDiagnosticMode
 ): StyleSpecification {
   const compact = presentationProfile === 'compact';
+  const includeDem = terrainCoreDiagnosticMode !== 'maplibre-base';
+  const includeTerrain = terrainCoreDiagnosticMode !== 'maplibre-base'
+    && terrainCoreDiagnosticMode !== 'dem-source'
+    && terrainCoreDiagnosticMode !== 'hillshade-only';
+  const includeHillshade = terrainCoreDiagnosticMode !== 'maplibre-base'
+    && terrainCoreDiagnosticMode !== 'dem-source'
+    && terrainCoreDiagnosticMode !== 'terrain-mesh';
   return {
     version: 8,
     sources: {
@@ -250,7 +261,7 @@ function mapStyle(
         type: 'geojson',
         data: terrainLandGeoJSON
       },
-      'r3-wp2b-terrain-dem': demSource,
+      ...(includeDem && demSource ? { 'r3-wp2b-terrain-dem': demSource } : {}),
       'campaign-territories': {
         type: 'geojson',
         data: politicalData,
@@ -269,10 +280,10 @@ function mapStyle(
         data: nodeData
       }
     },
-    terrain: {
+    ...(includeTerrain ? { terrain: {
       source: 'r3-wp2b-terrain-dem',
       exaggeration: terrainExaggerationForProfile(presentationProfile)
-    },
+    } } : {}),
     layers: [
       {
         id: 'r3-wp2b-sea',
@@ -296,7 +307,7 @@ function mapStyle(
           ]
         }
       },
-      {
+      ...(includeHillshade ? [{
         id: 'r3-wp2b-hillshade',
         type: 'hillshade',
         // Terrain and hillshade consume the same bounded DEM cache. A second
@@ -311,7 +322,7 @@ function mapStyle(
           'hillshade-highlight-color': '#d5d8ca',
           'hillshade-accent-color': '#6c6759'
         }
-      },
+      } as const] : []),
       {
         id: 'r3-wp2b-coastline',
         type: 'line',
@@ -555,7 +566,8 @@ export function TerrainMapPrototypeImpl({
   onSelectGroup,
   onFallback,
   presentationProfile = 'full',
-  diagnosticScene = 'full'
+  diagnosticScene = 'full',
+  terrainCoreDiagnosticMode
 }: TerrainMapPrototypeProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
@@ -622,12 +634,15 @@ export function TerrainMapPrototypeImpl({
     let toolbarMutationObserver: MutationObserver | null = null;
     let cancelOperationalLayoutFrame: (() => void) | undefined;
     let diagnosticTimers: number[] = [];
+    let terrainCoreHeartbeat: number | undefined;
 
     const initialise = async () => {
-      const terrainSource = await loadTerrainSource();
+      const terrainSource = terrainCoreDiagnosticMode === 'maplibre-base'
+        ? undefined
+        : await loadTerrainSource();
       if (disposed || !containerRef.current) return;
 
-      setSourceAttribution(terrainSource.attribution);
+      if (terrainSource) setSourceAttribution(terrainSource.attribution);
       const initial = terrainCameraForProfile(terrainCameraPreset('campaign'), presentationProfile);
       const [west, south, east, north] = R3_TERRAIN_PROTOTYPE_BOUNDS;
       const tileCancellationOverride = new URLSearchParams(window.location.search).get('tileCancellation');
@@ -635,7 +650,7 @@ export function TerrainMapPrototypeImpl({
         || tileCancellationOverride !== 'retain';
       const map = new Map({
         container: containerRef.current,
-        style: mapStyle(politicalData, frontData, routeData, nodeData, terrainSource.source, presentationProfile),
+        style: mapStyle(politicalData, frontData, routeData, nodeData, terrainSource?.source, presentationProfile, terrainCoreDiagnosticMode),
         center: [initial.center[0], initial.center[1]],
         zoom: initial.zoom,
         pitch: initial.pitch,
@@ -665,6 +680,7 @@ export function TerrainMapPrototypeImpl({
       const query = new URLSearchParams(window.location.search);
       const diagnosticMode = query.get('r5Diagnostic') === '1' || query.has('r5HardwareDiag');
       const sceneMode = diagnosticScene;
+      const terrainCoreMode = terrainCoreDiagnosticMode;
       const diagnostics: TerrainDiagnosticRecord = diagnosticWindow.__r3TerrainDiagnostics = {
         sceneMode,
         mapConstructCount: Number(diagnosticWindow.__r3TerrainDiagnostics?.mapConstructCount ?? 0) + 1,
@@ -682,6 +698,44 @@ export function TerrainMapPrototypeImpl({
         toolbarLifecycle: [],
         firstCampaignFrontsReload: null
       };
+      type TerrainCoreDiagnosticSnapshot = Record<string, unknown>;
+      const terrainCoreWindow = window as typeof window & {
+        __r5TerrainCoreDiagnostic?: TerrainCoreDiagnosticSnapshot;
+        __r5DiagnosticLaunchTimestamp?: number;
+      };
+      const terrainCoreSnapshot: TerrainCoreDiagnosticSnapshot | undefined = terrainCoreMode ? terrainCoreWindow.__r5TerrainCoreDiagnostic = {
+        mode: terrainCoreMode,
+        launchTimestamp: terrainCoreWindow.__r5DiagnosticLaunchTimestamp ?? null,
+        mapConstructedTimestamp: performance.now(),
+        mapLoadTimestamp: null,
+        mapLoaded: false,
+        styleLoaded: false,
+        tilesLoaded: false,
+        demSourcePresent: Boolean(map.getSource('r3-wp2b-terrain-dem')),
+        demSourceLoaded: null,
+        terrainAttached: Boolean(map.getTerrain()),
+        hillshadePresent: Boolean(map.getLayer('r3-wp2b-hillshade')),
+        renderCount: 0,
+        repaintCount: 0,
+        lastHeartbeatTimestamp: performance.now()
+      } : undefined;
+      const refreshTerrainCoreSnapshot = () => {
+        if (!terrainCoreSnapshot) return;
+        Object.assign(terrainCoreSnapshot, {
+          launchTimestamp: terrainCoreWindow.__r5DiagnosticLaunchTimestamp ?? null,
+          mapLoaded: map.loaded(),
+          styleLoaded: map.isStyleLoaded(),
+          tilesLoaded: map.areTilesLoaded(),
+          demSourcePresent: Boolean(map.getSource('r3-wp2b-terrain-dem')),
+          demSourceLoaded: map.getSource('r3-wp2b-terrain-dem')?.loaded() ?? null,
+          terrainAttached: Boolean(map.getTerrain()),
+          hillshadePresent: Boolean(map.getLayer('r3-wp2b-hillshade')),
+          renderCount: diagnostics.renderCount,
+          repaintCount: diagnostics.triggerRepaintCount,
+          lastHeartbeatTimestamp: performance.now()
+        });
+      };
+      if (terrainCoreSnapshot) terrainCoreHeartbeat = window.setInterval(refreshTerrainCoreSnapshot, 1_000);
       const boundedPush = (key: string, value: TerrainDiagnosticRecord, limit = 80) => {
         const history = diagnostics[key] as TerrainDiagnosticRecord[];
         history.push(value);
@@ -802,7 +856,7 @@ export function TerrainMapPrototypeImpl({
       };
       applySafePadding('initial');
       if (typeof ResizeObserver !== 'undefined' && toolbarRef.current) {
-        toolbarResizeObserver = new ResizeObserver(entries => {
+        toolbarResizeObserver = diagnosticMode ? new ResizeObserver(entries => {
           boundedPush('toolbarLifecycle', {
             at: Math.round(performance.now()),
             cause: 'resize-observer',
@@ -811,7 +865,7 @@ export function TerrainMapPrototypeImpl({
             layout: layoutSnapshot()
           });
           applySafePadding('toolbar-resize-observer');
-        });
+        }) : new ResizeObserver(() => applySafePadding('toolbar-resize-observer'));
         toolbarResizeObserver.observe(toolbarRef.current);
       }
 
@@ -919,7 +973,7 @@ export function TerrainMapPrototypeImpl({
         const host = containerRef.current?.parentElement;
         if (!host) return;
         const nextMode = map.getZoom() < 4.8 ? 'strategic-flat' : 'physical';
-        if (nextMode !== terrainMeshMode) {
+        if (map.getTerrain() && nextMode !== terrainMeshMode) {
           // Keep the DEM source attached in Theatre so MapLibre can retain its
           // terrain tile cache across Theatre -> Campaign/Selected transitions.
           // Zero exaggeration gives the required strategic-flat presentation
@@ -955,6 +1009,10 @@ export function TerrainMapPrototypeImpl({
       refreshOperationalPresentation();
 
       map.on('load', async () => {
+        if (terrainCoreSnapshot) {
+          terrainCoreSnapshot.mapLoadTimestamp = performance.now();
+          refreshTerrainCoreSnapshot();
+        }
         try {
           // Keep Three.js out of the already budgeted terrain bootstrap chunk.
           const [formationModule, worldModule] = await Promise.all([
@@ -983,11 +1041,11 @@ export function TerrainMapPrototypeImpl({
           at: Math.round(performance.now()),
           cause: 'map-load-react-status-transition',
           from: { status: 'initialising', message: 'Initialising continuous terrain…' },
-          to: { status: 'ready', message: `${terrainSource.label} · ${presentationProfile === 'compact' ? 'compact terrain' : 'continuous relief'} · operational overlays projected from campaign state` },
+          to: { status: 'ready', message: `${terrainSource?.label ?? 'MapLibre base map'} · ${presentationProfile === 'compact' ? 'compact terrain' : 'continuous relief'} · operational overlays projected from campaign state` },
           layoutBeforeReactCommit: layoutSnapshot()
         });
         setStatus('ready');
-        setMessage(`${terrainSource.label} · ${presentationProfile === 'compact' ? 'compact terrain' : 'continuous relief'} · operational overlays projected from campaign state`);
+        setMessage(`${terrainSource?.label ?? 'MapLibre base map'} · ${presentationProfile === 'compact' ? 'compact terrain' : 'continuous relief'} · operational overlays projected from campaign state`);
       });
 
       diagnosticTimers = diagnosticMode ? [1_000, 5_000, 10_000, 20_000].map(delay => window.setTimeout(() => {
@@ -1082,6 +1140,7 @@ export function TerrainMapPrototypeImpl({
     return () => {
       disposed = true;
       diagnosticTimers.forEach(timer => window.clearTimeout(timer));
+      if (terrainCoreHeartbeat !== undefined) window.clearInterval(terrainCoreHeartbeat);
       loadedRef.current = false;
       removeTerrainOperationalMarkers(operationalMarkersRef.current);
       operationalMarkersRef.current = [];
@@ -1098,6 +1157,7 @@ export function TerrainMapPrototypeImpl({
       delete (window as typeof window & { __r3TerrainMap?: Map }).__r3TerrainMap;
       delete (window as typeof window & { __r3StrategicNodes?: typeof STRATEGIC_NODES }).__r3StrategicNodes;
       delete (window as typeof window & { __r3TerritoryCentres?: typeof terrainOperationalTerritoryCentres }).__r3TerritoryCentres;
+      if (terrainCoreDiagnosticMode) delete (window as typeof window & { __r5TerrainCoreDiagnostic?: Record<string, unknown> }).__r5TerrainCoreDiagnostic;
       ownedMap?.remove();
     };
     // This host deliberately creates one renderer instance; campaign overlays

@@ -48,7 +48,8 @@ test('known-good terrain lifecycle is mounted and prewarmed behind the launcher'
 
 test('real-hardware differential is explicit and keeps light modes free of rich runtimes', () => {
   assert.match(hardwareDiagnostic, /r5HardwareDiag/);
-  assert.match(hardwareDiagnostic, /'shell', 'stable', 'terrain-none', 'terrain-world', 'terrain-formations', 'full'/);
+  assert.match(hardwareDiagnostic, /'shell', 'stable', 'maplibre-base', 'dem-source', 'terrain-mesh', 'hillshade-only'/);
+  assert.match(hardwareDiagnostic, /'terrain-none', 'terrain-world', 'terrain-formations', 'full'/);
   assert.match(hardwareDiagnostic, /: 'production'/);
   assert.match(app, /readR5HardwareDiagnosticMode/);
   assert.match(backdrop, /diagnosticMode === 'shell' \? null : buildR5RichMapPresentation/);
@@ -102,7 +103,7 @@ test('dedicated R5 Chromium gate covers launch, responsiveness, tray, renderer a
 test('CI diagnostics isolate custom layers without weakening the full-scene gate', () => {
   const workflow = readFileSync('.github/workflows/r5-bg0-browser-runtime.yml', 'utf8');
   const probe = readFileSync('scripts/probe-r5-bg0-runtime.mjs', 'utf8');
-  assert.match(probe, /'shell', 'stable', 'terrain-none', 'terrain-world', 'terrain-formations', 'full'/);
+  assert.match(probe, /'shell', 'stable', 'maplibre-base', 'dem-source', 'terrain-mesh', 'hillshade-only', 'terrain-none', 'terrain-world', 'terrain-formations', 'full'/);
   assert.match(probe, /r5HardwareDiag/);
   assert.match(backdrop, /diagnosticScene/);
   assert.match(terrain, /diagnosticScene = 'full'/);
@@ -129,6 +130,19 @@ test('CI diagnostics isolate custom layers without weakening the full-scene gate
   assert.match(terrain, /sourceState: state/);
   assert.match(terrain, /toolbarLifecycle/);
   assert.match(terrain, /map-load-react-status-transition/);
+});
+
+test('terrain-core differential explicitly selects one shared DEM and independent consumers', () => {
+  assert.match(backdrop, /terrainCoreDiagnosticMode=/);
+  assert.match(terrain, /terrainCoreDiagnosticMode === 'maplibre-base'/);
+  assert.match(terrain, /includeDem = terrainCoreDiagnosticMode !== 'maplibre-base'/);
+  assert.match(terrain, /terrainCoreDiagnosticMode !== 'dem-source'[\s\S]*terrainCoreDiagnosticMode !== 'hillshade-only'/);
+  assert.match(terrain, /terrainCoreDiagnosticMode !== 'dem-source'[\s\S]*terrainCoreDiagnosticMode !== 'terrain-mesh'/);
+  assert.match(terrain, /'r3-wp2b-terrain-dem': demSource/);
+  assert.doesNotMatch(terrain, /'r3-wp2b-hillshade-dem'/);
+  assert.match(terrain, /__r5TerrainCoreDiagnostic/);
+  assert.match(terrain, /lastHeartbeatTimestamp/);
+  assert.doesNotMatch(terrain, /readPixels/);
 });
 
 test('terrain elevation readbacks are bounded and null retries are cached', () => {

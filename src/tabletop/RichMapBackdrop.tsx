@@ -4,7 +4,7 @@ import type { TabletopBoardDefinition } from './board';
 import type { TabletopPrototypeForce } from './pieces';
 import type { TabletopGameState } from './state';
 import { buildR5RichMapPresentation } from './rich-map-adapter';
-import type { R5MapDiagnosticMode } from './r5-hardware-diagnostic';
+import { isR5TerrainCoreDiagnosticMode, type R5MapDiagnosticMode } from './r5-hardware-diagnostic';
 import type { TerrainDiagnosticScene } from '../components/TerrainMapPrototypeImpl';
 
 interface Props {
@@ -30,7 +30,7 @@ export function RichMapBackdrop(props: Props) {
     props.board, props.force, props.game, props.selectedPieceId, props.selectedRegionId
   ), [props.board, props.force, props.game, props.selectedPieceId, props.selectedRegionId, props.diagnosticMode]);
   useEffect(() => {
-    if (props.diagnosticMode !== 'shell' && props.diagnosticMode !== 'stable') prewarmTerrainMapModule();
+    if (props.diagnosticMode !== 'shell' && props.diagnosticMode !== 'stable' && props.diagnosticMode !== 'maplibre-base') prewarmTerrainMapModule();
   }, [props.diagnosticMode]);
   if (props.diagnosticMode === 'shell') return <div className="r5-hardware-map-placeholder" aria-label="Diagnostic map placeholder"><strong>MAP RUNTIME DISABLED</strong><span>Shell transition diagnostic</span></div>;
   if (!scene) return null;
@@ -44,9 +44,14 @@ export function RichMapBackdrop(props: Props) {
       onSelectGroup={props.onSelectPiece}
     /></Suspense>
   </div>;
-  const diagnosticScene: TerrainDiagnosticScene | undefined = props.diagnosticMode?.startsWith('terrain-')
+  const diagnosticScene: TerrainDiagnosticScene | undefined = isR5TerrainCoreDiagnosticMode(props.diagnosticMode ?? 'production')
+    ? 'none'
+    : props.diagnosticMode?.startsWith('terrain-')
     ? props.diagnosticMode.slice('terrain-'.length) as TerrainDiagnosticScene
     : props.diagnosticMode === 'full' ? 'full' : undefined;
+  const terrainCoreDiagnosticMode = isR5TerrainCoreDiagnosticMode(props.diagnosticMode ?? 'production')
+    ? props.diagnosticMode as import('./r5-hardware-diagnostic').R5TerrainCoreDiagnosticMode
+    : undefined;
   return <div className="r5-rich-map" aria-label="Physical terrain, landmark and formation presentation">
     <Suspense fallback={<div className="r3-terrain-prototype-loading" role="status">Loading terrain command map…</div>}><LazyTerrainMap
       state={scene.legacyState}
@@ -58,6 +63,7 @@ export function RichMapBackdrop(props: Props) {
       onFallback={() => setAvailable(false)}
       presentationProfile="full"
       diagnosticScene={diagnosticScene}
+      terrainCoreDiagnosticMode={terrainCoreDiagnosticMode}
     /></Suspense>
   </div>;
 }

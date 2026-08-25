@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 
 const origin = process.env.R5_RUNTIME_ORIGIN ?? 'http://127.0.0.1:4173';
 const screenshotPath = process.env.R5_RUNTIME_SCREENSHOT ?? '/tmp/r5-bg0-runtime.png';
-const modes = ['shell', 'stable', 'terrain-none', 'terrain-world', 'terrain-formations', 'full'];
+const modes = ['shell', 'stable', 'maplibre-base', 'dem-source', 'terrain-mesh', 'hillshade-only', 'terrain-none', 'terrain-world', 'terrain-formations', 'full'];
 // GitHub-hosted runners have no hardware GPU. Pin ANGLE to Chromium's supported
 // SwiftShader backend so WebGL scheduling is deterministic instead of depending
 // on whichever software fallback the runner happens to select.
@@ -57,7 +57,8 @@ async function exercise(mode, index) {
   await page.waitForFunction(previous => document.querySelector('.r3-tray-toggle')?.getAttribute('aria-expanded') !== previous, trayBefore);
   await heartbeat(page, `${mode} tray interaction`);
 
-  if (mode.startsWith('terrain-') || mode === 'full') {
+  const terrainCoreModes = ['maplibre-base', 'dem-source', 'terrain-mesh', 'hillshade-only'];
+  if (mode.startsWith('terrain-') || terrainCoreModes.includes(mode) || mode === 'full') {
     await page.locator('.r3-terrain-prototype').waitFor({ state: 'attached', timeout: 25_000 });
     await page.locator('.maplibregl-canvas').waitFor({ state: 'attached', timeout: 30_000 });
     if (mode === 'terrain-world' || mode === 'full') await page.waitForFunction(() => Boolean(window.__r3WorldMiniatures), null, { timeout: 60_000 });
@@ -67,6 +68,10 @@ async function exercise(mode, index) {
   const expected = {
     shell: { placeholder: 1, stable: 0, terrain: 0, canvas: 0, world: false, formations: false },
     stable: { placeholder: 0, stable: 1, terrain: 0, canvas: 0, world: false, formations: false },
+    'maplibre-base': { placeholder: 0, stable: 0, terrain: 1, canvas: 1, world: false, formations: false },
+    'dem-source': { placeholder: 0, stable: 0, terrain: 1, canvas: 1, world: false, formations: false },
+    'terrain-mesh': { placeholder: 0, stable: 0, terrain: 1, canvas: 1, world: false, formations: false },
+    'hillshade-only': { placeholder: 0, stable: 0, terrain: 1, canvas: 1, world: false, formations: false },
     'terrain-none': { placeholder: 0, stable: 0, terrain: 1, canvas: 1, world: false, formations: false },
     'terrain-world': { placeholder: 0, stable: 0, terrain: 1, canvas: 1, world: true, formations: false },
     'terrain-formations': { placeholder: 0, stable: 0, terrain: 1, canvas: 1, world: false, formations: true },
@@ -81,12 +86,31 @@ async function exercise(mode, index) {
     scene: window.__r3TerrainDiagnostics?.sceneMode ?? null,
     world: Boolean(window.__r3WorldMiniatures),
     formations: Boolean(window.__r3FormationMiniatures)
+    , terrainCore: window.__r5TerrainCoreDiagnostic ?? null,
+    terrainSubsystems: window.__r3TerrainMap ? {
+      dem: Boolean(window.__r3TerrainMap.getSource('r3-wp2b-terrain-dem')),
+      terrain: Boolean(window.__r3TerrainMap.getTerrain()),
+      hillshade: Boolean(window.__r3TerrainMap.getLayer('r3-wp2b-hillshade'))
+    } : null
   }));
   for (const key of ['placeholder', 'stable', 'terrain', 'canvas', 'world', 'formations']) {
     if (actual[key] !== expected[key]) throw new Error(`${mode}: expected ${key}=${expected[key]}, got ${actual[key]} (${JSON.stringify(actual)})`);
   }
-  const expectedScene = mode.startsWith('terrain-') ? mode.slice(8) : mode === 'full' ? 'full' : null;
+  const expectedScene = terrainCoreModes.includes(mode) ? 'none' : mode.startsWith('terrain-') ? mode.slice(8) : mode === 'full' ? 'full' : null;
   if (actual.scene !== expectedScene) throw new Error(`${mode}: expected diagnostic scene ${expectedScene}, got ${actual.scene}`);
+  if (terrainCoreModes.includes(mode) || mode === 'terrain-none') {
+    const expectedSubsystems = {
+      'maplibre-base': [false, false, false],
+      'dem-source': [true, false, false],
+      'terrain-mesh': [true, true, false],
+      'hillshade-only': [true, false, true],
+      'terrain-none': [true, true, true]
+    }[mode];
+    const actualSubsystems = [actual.terrainSubsystems?.dem, actual.terrainSubsystems?.terrain, actual.terrainSubsystems?.hillshade];
+    if (JSON.stringify(actualSubsystems) !== JSON.stringify(expectedSubsystems)) {
+      throw new Error(`${mode}: expected DEM/terrain/hillshade ${JSON.stringify(expectedSubsystems)}, got ${JSON.stringify(actualSubsystems)}`);
+    }
+  }
   if (pageErrors.length) throw new Error(`${mode}: page errors: ${pageErrors.join('\n')}`);
   if (index === modes.length - 1) await page.screenshot({ path: screenshotPath, fullPage: true });
   console.log(`R5 isolation result ${mode}: ${JSON.stringify(actual)}`);
