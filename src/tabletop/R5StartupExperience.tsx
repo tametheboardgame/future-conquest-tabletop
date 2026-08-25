@@ -49,6 +49,9 @@ export function R5StartupExperience({ children }: { children: ReactNode }) {
   };
 
   const begin = () => {
+    if (diagnosticMode !== 'production') {
+      (window as typeof window & { __r5DiagnosticLaunchTimestamp?: number }).__r5DiagnosticLaunchTimestamp = performance.now();
+    }
     logR5HardwareDiagnostic(diagnosticMode, 'BEGIN CAMPAIGN click');
     void audioManager.unlock();
     logR5HardwareDiagnostic(diagnosticMode, 'audioManager.unlock requested');
