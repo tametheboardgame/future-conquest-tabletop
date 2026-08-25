@@ -76,7 +76,7 @@ const HUMAN_COALITION: TabletopSeatController = { type: 'human', localPlayer: 1 
  */
 export function createDefaultCommandSeats(): Record<TabletopSeatId, TabletopSeatState> {
   const controllerFor = (seatId: TabletopCommandSeatId): TabletopSeatController =>
-    TABLETOP_COMMAND_SEATS[seatId].factionId === 'future-force' ? HUMAN_FUTURE : HUMAN_COALITION;
+    TABLETOP_COMMAND_SEATS[seatId].factionId === 'future-force' ? { ...HUMAN_FUTURE } : { ...HUMAN_COALITION };
   return Object.fromEntries(TABLETOP_COMMAND_SEAT_IDS.map((seatId) => [seatId, {
     id: seatId,
     factionId: TABLETOP_COMMAND_SEATS[seatId].factionId,
