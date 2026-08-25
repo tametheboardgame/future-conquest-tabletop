@@ -20,15 +20,17 @@ test('BG1 game state contains exactly six permanent command seats', () => {
   }
 });
 
-test('default two-player assignment does not change command identities', () => {
+test('default two-player assignment gives each player a full side without changing command identities', () => {
   const state = createTabletopGame();
   const humanSeats = Object.values(state.seats).filter((seat) => seat.controller.type === 'human');
-  const aiSeats = Object.values(state.seats).filter((seat) => seat.controller.type === 'ai');
-  assert.equal(humanSeats.length, 2);
-  assert.equal(aiSeats.length, 4);
-  assert.deepEqual(humanSeats.map((seat) => seat.id).sort(), ['coalition-seat', 'future-seat']);
+  assert.equal(humanSeats.length, 6);
+  const futurePlayers = commandSeatIdsForFaction('future-force').map((seatId) => state.seats[seatId].controller.localPlayer);
+  const coalitionPlayers = commandSeatIdsForFaction('present-day-coalition').map((seatId) => state.seats[seatId].controller.localPlayer);
+  assert.deepEqual(futurePlayers, [0, 0, 0]);
+  assert.deepEqual(coalitionPlayers, [1, 1, 1]);
+
   const before = commandSeatForPiece('ff-vanguard-one-piece');
-  state.seats['future-bravo'].controller = { type: 'human', localPlayer: 2 };
+  state.seats['future-bravo'].controller = { type: 'ai', profileId: 'standard-command-ai' };
   assert.equal(commandSeatForPiece('ff-vanguard-one-piece'), before);
 });
 
