@@ -1,6 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createTabletopGame, dispatchCoreAction, resumeTabletopGame, serializeTabletopGame } = require('../.tabletop-test-dist/core-actions.js');
+const {
+  commandSeatForFormation,
+  createTabletopGame,
+  dispatchCoreAction,
+  legalTargets,
+  resumeTabletopGame,
+  serializeTabletopGame
+} = require('../.tabletop-test-dist/core-actions.js');
+const { TABLETOP_COMMAND_SEAT_IDS } = require('../.tabletop-test-dist/command-seats.js');
 
 const act = (state, request) => dispatchCoreAction(state, { seatId: state.round.activeSeatId, ...request });
 const setActive = (state, seatId) => ({ ...state, round: { ...state.round, activeSeatId: seatId } });
@@ -36,44 +44,67 @@ test('Recover respects scenario formation maximum', () => {
   verifyBoundary(state, result, next => { assert.equal(next.board.pieces['ff-spearhead-alpha-piece'].strength, 6); assert.equal(next.board.pieces['ff-spearhead-alpha-piece'].readiness, 'ready'); });
 });
 
-test('Engineer repairs one connected damaged route', () => {
-  const state = createTabletopGame();
+test('Engineer repairs one connected damaged route for its owning command', () => {
+  const state = setActive(createTabletopGame(), 'future-charlie');
   const result = act(state, { type: 'engineer', pieceId: 'ff-engineer-cohort-piece', routeId: 'r38' });
   verifyBoundary(state, result, next => assert.equal(next.board.routes.r38.status, 'intact'));
 });
 
-test('Logistics improves one eligible owned formation', () => {
-  const state = createTabletopGame();
+test('Logistics improves one eligible command-owned formation', () => {
+  const state = setActive(createTabletopGame(), 'future-charlie');
   const result = act(state, { type: 'logistics', pieceId: 'ff-engineer-cohort-piece' });
   verifyBoundary(state, result, next => assert.equal(next.board.pieces['ff-engineer-cohort-piece'].supply, 'supplied'));
 });
 
-test('basic scenario hook secures an occupied objective', () => {
+test('basic scenario hook secures an occupied objective for the whole faction', () => {
   const state = createTabletopGame();
   const result = act(state, { type: 'scenario', regionId: 'kyiv', scenarioActionId: 'secure-objective' });
-  verifyBoundary(state, result, next => { assert.equal(next.scenario.objectiveState['secured:future-seat:kyiv'], true); assert.equal(next.scenario.tracks.scenarioActions, 1); });
+  verifyBoundary(state, result, next => {
+    assert.equal(next.scenario.objectiveState['secured:future-force:kyiv'], true);
+    assert.equal(next.scenario.tracks.scenarioActions, 1);
+  });
+
+  const bravoTurn = setActive(result.state, 'future-bravo');
+  assert.equal(legalTargets(bravoTurn, 'scenario').includes('kyiv'), false);
+  const duplicate = dispatchCoreAction(bravoTurn, {
+    type: 'scenario',
+    seatId: 'future-bravo',
+    regionId: 'kyiv',
+    scenarioActionId: 'secure-objective'
+  });
+  assert.equal(duplicate.ok, false);
+  assert.equal(duplicate.state.scenario.tracks.scenarioActions, 1);
 });
 
-test('out-of-turn, enemy ownership, illegal target and ineligible actions do not mutate or spend', () => {
+test('out-of-turn, enemy ownership, wrong-command ownership, illegal target and ineligible actions do not mutate or spend', () => {
   const requests = [
     { type: 'move', seatId: 'coalition-seat', pieceId: 'pc-british-expeditionary-piece', targetRegionId: 'channel-approaches' },
     { type: 'move', seatId: 'future-seat', pieceId: 'pc-british-expeditionary-piece', targetRegionId: 'channel-approaches' },
+    { type: 'move', seatId: 'future-seat', pieceId: 'ff-vanguard-one-piece', targetRegionId: 'bohemia' },
     { type: 'move', seatId: 'future-seat', pieceId: 'ff-spearhead-alpha-piece', targetRegionId: 'london' },
     { type: 'recover', seatId: 'future-seat', pieceId: 'ff-spearhead-alpha-piece' }
   ];
-  for (const request of requests) { const state = createTabletopGame(); const json = JSON.stringify(state); const result = dispatchCoreAction(state, request); assert.equal(result.ok, false); assert.equal(JSON.stringify(result.state), json); assert.equal(state.round.commandActionsRemaining['future-seat'], 4); }
+  for (const request of requests) {
+    const state = createTabletopGame();
+    const json = JSON.stringify(state);
+    const result = dispatchCoreAction(state, request);
+    assert.equal(result.ok, false);
+    assert.equal(JSON.stringify(result.state), json);
+    assert.equal(state.round.commandActionsRemaining['future-seat'], 2);
+  }
 });
 
-test('eight successful core actions alternate and exhaust the phase', () => {
+test('eight successful core actions rotate through six commands and exhaust the phase', () => {
   let state = createTabletopGame();
   for (let i = 0; i < 8; i++) {
     const seat = state.round.activeSeatId;
-    const faction = state.seats[seat].factionId;
-    const piece = Object.values(state.board.pieces).find(p => p.factionId === faction);
+    const piece = Object.values(state.board.pieces).find(p => commandSeatForFormation(p.id) === seat);
+    assert.ok(piece, `expected a formation for ${seat}`);
     piece.readiness = 'damaged';
     const result = act(state, { type: 'recover', pieceId: piece.id });
-    assert.equal(result.ok, true); state = result.state;
+    assert.equal(result.ok, true);
+    state = result.state;
   }
   assert.equal(state.round.phase, 'supply');
-  assert.deepEqual(state.round.commandActionsRemaining, { 'future-seat': 0, 'coalition-seat': 0 });
+  assert.ok(TABLETOP_COMMAND_SEAT_IDS.every((seatId) => state.round.commandActionsRemaining[seatId] === 0));
 });

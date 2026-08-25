@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { legalTargets, previewAttack, type CoreActionRequest, type CoreActionResult } from './core-actions';
 import type { CombatResolution } from './combat';
 import type { TabletopBoardDefinition } from './board';
+import { commandSeatLabel } from './command-seats';
 import type { TabletopPrototypeForce } from './pieces';
 import { RichMapBackdrop } from './RichMapBackdrop';
 import type { TabletopGameState } from './state';
@@ -17,7 +18,6 @@ interface Props {
 }
 
 type Action = 'move' | 'attack';
-const seatName: Readonly<Record<string, string>> = { 'future-seat': 'Future Force', 'coalition-seat': 'Coalition' };
 
 /**
  * R3 is deliberately only the view/controller here. Every piece, target and
@@ -78,7 +78,7 @@ export function R3TabletopShell({ board, force, game, onAction, onPass, diagnost
       <div><p>Future Conquest</p><h1>{board.name}</h1></div>
       <dl aria-label="Tabletop command status">
         <div><dt>Round</dt><dd>{game.round.round} / {game.round.maxRounds}</dd></div>
-        <div><dt>Active command</dt><dd>{seatName[activeSeat]}</dd></div>
+        <div><dt>Active command</dt><dd>{commandSeatLabel(activeSeat)}</dd></div>
         <div><dt>Actions</dt><dd>{game.round.commandActionsRemaining[activeSeat]}</dd></div>
         <div><dt>Phase</dt><dd>{game.round.phase}</dd></div>
       </dl>
@@ -107,7 +107,7 @@ export function R3TabletopShell({ board, force, game, onAction, onPass, diagnost
         <aside className={`r3-board-tray${trayOpen ? ' is-open' : ''}`} aria-label="Board game action tray">
           <button className="r3-tray-toggle" type="button" aria-expanded={trayOpen} onClick={() => setTrayOpen(value => !value)}>{trayOpen ? '›' : '‹'}<span>Actions</span></button>
           <div className="r3-tray-content">
-            <p className="r3-panel-label">Current activation</p><h2>{seatName[activeSeat]}</h2>
+            <p className="r3-panel-label">Current activation</p><h2>{commandSeatLabel(activeSeat)}</h2>
             <p className="r3-piece-name">{definition?.name ?? 'No formation selected'}</p>
             {selectedPiece && <p className="r3-piece-stats">Strength {selectedPiece.strength} · {selectedPiece.readiness} · {selectedPiece.supply}</p>}
             <div className="r3-action-buttons">

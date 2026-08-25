@@ -76,19 +76,29 @@ await page.addInitScript(() => {
 });
 
 const started = performance.now();
-const query = tileCancellation === 'cancel' ? '?terrain=1&tileCancellation=cancel' : '?terrain=1';
-await page.goto(`${origin}/${query}`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+// Use an explicit BG0 terrain-core mode rather than the broader terrain-none
+// scene mode. This guarantees the same diagnostic settlement contract exists
+// in both the exact accepted base and the exact BG1 head.
+const query = new URLSearchParams({ terrain: '1', r5HardwareDiag: 'terrain-mesh' });
+if (tileCancellation === 'cancel') query.set('tileCancellation', 'cancel');
+if (tileCancellation === 'retain') query.set('tileCancellation', 'retain');
+await page.goto(`${origin}/?${query.toString()}`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 
-// Normalise only the benchmark's map geometry. This deliberately does not
-// change terrain camera, LOD, source, tile or renderer behaviour. Keeping the
-// map heading out of layout flow also prevents old/new command chrome from
-// changing the measured MapLibre host dimensions.
+// Normalise only the benchmark's map geometry. The probe deliberately supports
+// both the historical command-map shell and the accepted R5 tabletop shell so
+// an R5 rules-only PR can still compare the exact base renderer with the head.
 await page.addStyleTag({ content: `
   .command-map-workspace {
     grid-template-columns: ${BENCHMARK_MAP_WIDTH}px minmax(0, 1fr) !important;
     align-items: start !important;
   }
-  .map-panel {
+  .r3-command-workspace {
+    grid-template-columns: 72px ${BENCHMARK_MAP_WIDTH}px !important;
+    justify-content: start !important;
+    align-items: start !important;
+  }
+  .map-panel,
+  .r3-map-host {
     display: block !important;
     position: relative !important;
     width: ${BENCHMARK_MAP_WIDTH}px !important;
@@ -105,6 +115,7 @@ await page.addStyleTag({ content: `
     z-index: 50 !important;
   }
   .map-panel > .r3-terrain-prototype-shell,
+  .r3-map-host > .r3-terrain-prototype-shell,
   .r3-terrain-prototype-shell {
     position: absolute !important;
     inset: 0 !important;
@@ -124,7 +135,16 @@ await page.addStyleTag({ content: `
 
 await page.getByRole('button', { name: 'BEGIN CAMPAIGN', exact: true }).click();
 await page.locator('.startup-game-shell').waitFor({ state: 'visible', timeout: 15_000 });
-await page.locator('[data-command-view="map"]').click();
+
+// Older R3 builds required explicitly entering the map command view. The R5
+// tabletop shell is map-first and has no such control. Do not wait for an
+// element that intentionally no longer exists on current production.
+const legacyMapControl = page.locator('[data-command-view="map"]');
+if (await legacyMapControl.count()) {
+  await legacyMapControl.first().click();
+} else {
+  await page.locator('.r3-map-host, .map-panel').first().waitFor({ state: 'visible', timeout: 15_000 });
+}
 
 const terrainCanvas = page.locator('.r3-terrain-prototype-canvas canvas');
 const fallback = page.locator('.r3-terrain-fallback-notice');
@@ -137,7 +157,8 @@ if (startupOutcome !== 'terrain') {
     terrainStatus: document.querySelector('.r3-terrain-prototype')?.getAttribute('data-status') ?? null,
     terrainPrototype: Boolean(document.querySelector('.r3-terrain-prototype')),
     fallback: document.querySelector('.r3-terrain-fallback-notice')?.textContent ?? null,
-    canvasCount: document.querySelectorAll('.maplibregl-canvas').length
+    canvasCount: document.querySelectorAll('.maplibregl-canvas').length,
+    terrainCore: window.__r5TerrainCoreDiagnostic ?? null
   }));
   console.error('WP2E performance startup diagnostics:', JSON.stringify({ startupOutcome, state, diagnostics }, null, 2));
   await browser.close();
@@ -149,16 +170,26 @@ if (startupOutcome !== 'terrain') {
   process.exit(75);
 }
 
-// A visible MapLibre canvas can still be blank while the style is loading.
-// Define useful paint build-neutrally: renderer ready/warning, Campaign LOD
-// applied, then allow two animation frames for that ready state to be painted.
-await page.locator('.r3-terrain-prototype[data-status="ready"], .r3-terrain-prototype[data-status="warning"]').waitFor({ state: 'visible', timeout: 45_000 });
+// Current BG0 uses the terrain-core diagnostic as the authoritative settlement
+// evidence. The terrain-mesh mode isolates exactly the DEM plus MapLibre terrain
+// surface being benchmarked, without custom Three layers or hillshade work.
+await page.waitForFunction(() => {
+  const snapshot = window.__r5TerrainCoreDiagnostic;
+  return snapshot?.mode === 'terrain-mesh'
+    && snapshot.mapLoaded === true
+    && snapshot.styleLoaded === true
+    && snapshot.tilesLoaded === true
+    && snapshot.demSourcePresent === true
+    && snapshot.demSourceLoaded === true
+    && snapshot.terrainAttached === true
+    && snapshot.hillshadePresent === false;
+}, undefined, { timeout: 45_000 });
 await page.waitForFunction(() => document.querySelector('.r3-terrain-prototype')?.getAttribute('data-overlay-lod') === 'campaign');
 await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 const firstUsefulPaintMs = performance.now() - started;
 
 const benchmarkSurface = await page.evaluate(() => {
-  const panel = document.querySelector('.map-panel');
+  const panel = document.querySelector('.map-panel') ?? document.querySelector('.r3-map-host');
   const prototype = document.querySelector('.r3-terrain-prototype');
   const canvas = document.querySelector('.r3-terrain-prototype-canvas canvas');
   const dimensions = node => {
@@ -182,11 +213,10 @@ if (benchmarkWidthDelta > BENCHMARK_DIMENSION_TOLERANCE || benchmarkHeightDelta 
 }
 
 /**
- * Build-neutral settlement rule used identically for WP2D base and WP2E head:
+ * Build-neutral settlement rule used identically for exact base and exact head:
  * allow the normal camera/render window to elapse, then require every observed
  * Terrain-RGB request body to have completed and terrain network activity to
- * have remained quiet for a bounded period. Head-only MapLibre idle
- * instrumentation is intentionally not required here.
+ * have remained quiet for a bounded period.
  */
 const waitForTerrainSettlement = async (phaseStartedAt, minimumMs) => {
   for (;;) {
@@ -208,9 +238,7 @@ const campaignSettledMs = performance.now() - started;
 
 // Selected/local camera requires an actual selected territory. Establish the
 // same deterministic selection through the real terrain label on both exact
-// base and head before timing either camera transition. This keeps selection
-// setup outside the measured Theatre/Selected transition windows and removes
-// dependence on incidental campaign UI state.
+// base and head before timing either camera transition.
 const benchmarkTerritory = page.locator('.r3-terrain-territory-label[data-territory-id="DE-03"]');
 await benchmarkTerritory.waitFor({ state: 'visible', timeout: 15_000 });
 await benchmarkTerritory.click({ force: true });
@@ -268,7 +296,9 @@ const evidence = {
   },
   cacheMode: 'cold-disabled',
   usefulPaint: {
-    requiresRendererReady: true,
+    diagnosticMode: 'terrain-mesh',
+    requiresMapStyleTilesSettled: true,
+    requiresTerrainCoreComposition: true,
     requiresCampaignLod: true,
     animationFramesAfterReady: 2
   },
@@ -292,6 +322,7 @@ const evidence = {
   },
   fallbackVisible: await fallback.isVisible().catch(() => false),
   warning: await page.locator('.r3-terrain-prototype').getAttribute('data-status') === 'warning',
+  terrainCore: await page.evaluate(() => window.__r5TerrainCoreDiagnostic ?? null),
   diagnostics
 };
 if (evidence.fallbackVisible) throw new Error('terrain fell back during WP2E performance gate');

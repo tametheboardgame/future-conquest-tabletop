@@ -104,11 +104,11 @@ test('dispatcher rejects invalid attack without mutation or action cost', () => 
   assert.equal(result.state, state);
 });
 
-test('successful attack spends exactly one action and alternates', () => {
+test('successful attack spends exactly one command action and alternates sides', () => {
   const { state, attacker, defender } = setup();
   const result = dispatchCoreAction(state, { type: 'attack', seatId: 'future-seat', pieceId: attacker.id, targetRegionId: defender.regionId });
   assert.equal(result.ok, true);
-  assert.equal(result.state.round.commandActionsRemaining['future-seat'], 3);
+  assert.equal(result.state.round.commandActionsRemaining['future-seat'], 1);
   assert.equal(result.state.round.activeSeatId, 'coalition-seat');
   assert.ok(result.combat, 'dispatcher exposes its exact authoritative resolution');
   assert.deepEqual(result.combat.pieces, result.state.board.pieces);
