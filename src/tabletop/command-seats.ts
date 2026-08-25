@@ -68,13 +68,15 @@ export function createBg1CommandActions(): Record<TabletopSeatId, number> {
 const HUMAN_FUTURE: TabletopSeatController = { type: 'human', localPlayer: 0 };
 const HUMAN_COALITION: TabletopSeatController = { type: 'human', localPlayer: 1 };
 
-/** Default two-human assignment. Command identity and controller assignment are deliberately separate. */
+/**
+ * Default two-human assignment: player 0 controls all three Future commands and
+ * player 1 all three Coalition commands. Controller assignment remains separate
+ * from command identity, so later setup can reassign any seat to another human
+ * or AI without altering formations, faction identity or force capacity.
+ */
 export function createDefaultCommandSeats(): Record<TabletopSeatId, TabletopSeatState> {
-  const controllerFor = (seatId: TabletopCommandSeatId): TabletopSeatController => {
-    if (seatId === 'future-seat') return HUMAN_FUTURE;
-    if (seatId === 'coalition-seat') return HUMAN_COALITION;
-    return { type: 'ai', profileId: 'standard-command-ai' };
-  };
+  const controllerFor = (seatId: TabletopCommandSeatId): TabletopSeatController =>
+    TABLETOP_COMMAND_SEATS[seatId].factionId === 'future-force' ? HUMAN_FUTURE : HUMAN_COALITION;
   return Object.fromEntries(TABLETOP_COMMAND_SEAT_IDS.map((seatId) => [seatId, {
     id: seatId,
     factionId: TABLETOP_COMMAND_SEATS[seatId].factionId,
