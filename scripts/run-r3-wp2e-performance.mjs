@@ -79,16 +79,21 @@ const started = performance.now();
 const query = tileCancellation === 'cancel' ? '?terrain=1&tileCancellation=cancel' : '?terrain=1';
 await page.goto(`${origin}/${query}`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 
-// Normalise only the benchmark's map geometry. This deliberately does not
-// change terrain camera, LOD, source, tile or renderer behaviour. Keeping the
-// map heading out of layout flow also prevents old/new command chrome from
-// changing the measured MapLibre host dimensions.
+// Normalise only the benchmark's map geometry. The probe deliberately supports
+// both the historical command-map shell and the accepted R5 tabletop shell so
+// an R5 rules-only PR can still compare the exact base renderer with the head.
 await page.addStyleTag({ content: `
   .command-map-workspace {
     grid-template-columns: ${BENCHMARK_MAP_WIDTH}px minmax(0, 1fr) !important;
     align-items: start !important;
   }
-  .map-panel {
+  .r3-command-workspace {
+    grid-template-columns: 72px ${BENCHMARK_MAP_WIDTH}px !important;
+    justify-content: start !important;
+    align-items: start !important;
+  }
+  .map-panel,
+  .r3-map-host {
     display: block !important;
     position: relative !important;
     width: ${BENCHMARK_MAP_WIDTH}px !important;
@@ -105,6 +110,7 @@ await page.addStyleTag({ content: `
     z-index: 50 !important;
   }
   .map-panel > .r3-terrain-prototype-shell,
+  .r3-map-host > .r3-terrain-prototype-shell,
   .r3-terrain-prototype-shell {
     position: absolute !important;
     inset: 0 !important;
@@ -124,7 +130,16 @@ await page.addStyleTag({ content: `
 
 await page.getByRole('button', { name: 'BEGIN CAMPAIGN', exact: true }).click();
 await page.locator('.startup-game-shell').waitFor({ state: 'visible', timeout: 15_000 });
-await page.locator('[data-command-view="map"]').click();
+
+// Older R3 builds required explicitly entering the map command view. The R5
+// tabletop shell is map-first and has no such control. Do not wait 30 seconds
+// for an element that intentionally no longer exists on current production.
+const legacyMapControl = page.locator('[data-command-view="map"]');
+if (await legacyMapControl.count()) {
+  await legacyMapControl.first().click();
+} else {
+  await page.locator('.r3-map-host, .map-panel').first().waitFor({ state: 'visible', timeout: 15_000 });
+}
 
 const terrainCanvas = page.locator('.r3-terrain-prototype-canvas canvas');
 const fallback = page.locator('.r3-terrain-fallback-notice');
@@ -158,7 +173,7 @@ await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => req
 const firstUsefulPaintMs = performance.now() - started;
 
 const benchmarkSurface = await page.evaluate(() => {
-  const panel = document.querySelector('.map-panel');
+  const panel = document.querySelector('.map-panel') ?? document.querySelector('.r3-map-host');
   const prototype = document.querySelector('.r3-terrain-prototype');
   const canvas = document.querySelector('.r3-terrain-prototype-canvas canvas');
   const dimensions = node => {
