@@ -26,7 +26,10 @@ function actionsRemainingForFaction(state: TabletopRoundState, factionId: Tablet
 function nextSeatForFaction(state: TabletopRoundState, factionId: TabletopFactionId): TabletopSeatId | null {
   const seatIds = commandSeatIdsForFaction(factionId);
   const spent = COMMAND_ACTIONS_PER_ROUND - actionsRemainingForFaction(state, factionId);
-  const startIndex = ((spent % seatIds.length) + seatIds.length) % seatIds.length;
+  const initiativeFaction = commandSeatFaction(state.initiativeSeatId);
+  const initiativeIndex = initiativeFaction === factionId ? seatIds.indexOf(state.initiativeSeatId as never) : 0;
+  const originIndex = initiativeIndex >= 0 ? initiativeIndex : 0;
+  const startIndex = ((originIndex + spent) % seatIds.length + seatIds.length) % seatIds.length;
   for (let offset = 0; offset < seatIds.length; offset += 1) {
     const seatId = seatIds[(startIndex + offset) % seatIds.length];
     if ((state.commandActionsRemaining[seatId] ?? 0) > 0) return seatId;
