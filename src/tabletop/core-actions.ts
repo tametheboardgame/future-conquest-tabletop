@@ -40,6 +40,7 @@ export interface CoreActionRules { board: TabletopBoardDefinition }
 const factionForSeat = (state: TabletopGameState, seatId: string): TabletopFactionId | null => state.seats[seatId]?.factionId ?? null;
 const piecesIn = (state: TabletopGameState, regionId: string) => Object.values(state.board.pieces).filter((piece) => piece.regionId === regionId);
 const maxStrength = (piece: TabletopPieceState) => CENTRAL_FRONT_PROTOTYPE_FORCE.pieces.find((candidate) => candidate.id === piece.id)?.strength ?? piece.strength;
+const securedObjectiveKey = (factionId: TabletopFactionId, regionId: string) => `secured:${factionId}:${regionId}`;
 
 export const DEFAULT_CORE_ACTION_RULES: CoreActionRules = { board: CENTRAL_FRONT_BOARD };
 
@@ -91,8 +92,8 @@ export function legalTargets(state: TabletopGameState, type: CoreActionType, pie
   const faction = factionForSeat(state, activeSeatId);
   const piece = pieceId ? state.board.pieces[pieceId] : undefined;
   if (piece && (piece.kind !== 'formation' || piece.factionId !== faction || !seatOwnsPiece(activeSeatId, piece.id))) return [];
-  if (type === 'scenario') return rules.board.objectives.filter((objective) => piecesIn(state, objective.regionId).some((p) => p.factionId === faction)
-    && state.scenario.objectiveState[`secured:${activeSeatId}:${objective.regionId}`] !== true).map((objective) => objective.regionId);
+  if (type === 'scenario' && faction) return rules.board.objectives.filter((objective) => piecesIn(state, objective.regionId).some((p) => p.factionId === faction)
+    && state.scenario.objectiveState[securedObjectiveKey(faction, objective.regionId)] !== true).map((objective) => objective.regionId);
   if (!piece) return [];
   if (type === 'move') return adjacentRegionIds(rules.board, piece.regionId).filter((id) => !piecesIn(state, id).some((p) => p.factionId !== faction));
   if (type === 'attack') return adjacentRegionIds(rules.board, piece.regionId).filter((id) => piecesIn(state, id).some((p) => p.factionId !== faction));
@@ -148,7 +149,7 @@ export function dispatchCoreAction(state: TabletopGameState, request: CoreAction
     current.supply = current.supply === 'cut-off' ? 'strained' : 'supplied';
     reason = `${piece.definitionId} logistics improved.`;
   } else if (request.type === 'scenario') {
-    next.scenario.objectiveState[`secured:${request.seatId}:${request.regionId}`] = true;
+    next.scenario.objectiveState[securedObjectiveKey(faction, request.regionId)] = true;
     next.scenario.tracks.scenarioActions = (next.scenario.tracks.scenarioActions ?? 0) + 1;
     reason = `${request.regionId} objective secured.`;
   }
