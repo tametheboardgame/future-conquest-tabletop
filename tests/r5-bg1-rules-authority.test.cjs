@@ -28,10 +28,13 @@ test('default two-player assignment gives each player a full side without changi
   const coalitionPlayers = commandSeatIdsForFaction('present-day-coalition').map((seatId) => state.seats[seatId].controller.localPlayer);
   assert.deepEqual(futurePlayers, [0, 0, 0]);
   assert.deepEqual(coalitionPlayers, [1, 1, 1]);
+  assert.notEqual(state.seats['future-seat'].controller, state.seats['future-bravo'].controller);
+  assert.notEqual(state.seats['coalition-seat'].controller, state.seats['coalition-central'].controller);
 
   const before = commandSeatForPiece('ff-vanguard-one-piece');
   state.seats['future-bravo'].controller = { type: 'ai', profileId: 'standard-command-ai' };
   assert.equal(commandSeatForPiece('ff-vanguard-one-piece'), before);
+  assert.equal(state.seats['future-seat'].controller.type, 'human');
 });
 
 test('every formation has one explicit command owner matching its faction', () => {
