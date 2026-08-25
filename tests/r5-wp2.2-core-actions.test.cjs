@@ -4,6 +4,7 @@ const {
   commandSeatForFormation,
   createTabletopGame,
   dispatchCoreAction,
+  legalTargets,
   resumeTabletopGame,
   serializeTabletopGame
 } = require('../.tabletop-test-dist/core-actions.js');
@@ -55,10 +56,24 @@ test('Logistics improves one eligible command-owned formation', () => {
   verifyBoundary(state, result, next => assert.equal(next.board.pieces['ff-engineer-cohort-piece'].supply, 'supplied'));
 });
 
-test('basic scenario hook secures an occupied objective', () => {
+test('basic scenario hook secures an occupied objective for the whole faction', () => {
   const state = createTabletopGame();
   const result = act(state, { type: 'scenario', regionId: 'kyiv', scenarioActionId: 'secure-objective' });
-  verifyBoundary(state, result, next => { assert.equal(next.scenario.objectiveState['secured:future-seat:kyiv'], true); assert.equal(next.scenario.tracks.scenarioActions, 1); });
+  verifyBoundary(state, result, next => {
+    assert.equal(next.scenario.objectiveState['secured:future-force:kyiv'], true);
+    assert.equal(next.scenario.tracks.scenarioActions, 1);
+  });
+
+  const bravoTurn = setActive(result.state, 'future-bravo');
+  assert.equal(legalTargets(bravoTurn, 'scenario').includes('kyiv'), false);
+  const duplicate = dispatchCoreAction(bravoTurn, {
+    type: 'scenario',
+    seatId: 'future-bravo',
+    regionId: 'kyiv',
+    scenarioActionId: 'secure-objective'
+  });
+  assert.equal(duplicate.ok, false);
+  assert.equal(duplicate.state.scenario.tracks.scenarioActions, 1);
 });
 
 test('out-of-turn, enemy ownership, wrong-command ownership, illegal target and ineligible actions do not mutate or spend', () => {
