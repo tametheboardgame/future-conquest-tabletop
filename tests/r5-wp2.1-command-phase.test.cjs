@@ -29,6 +29,11 @@ test('refresh preserves four actions per side while distributing them across thr
   assert.equal([coalitionWestern, coalitionCentral, coalitionEastern].reduce((n, id) => n + state.commandActionsRemaining[id], 0), COMMAND_ACTIONS_PER_ROUND);
 });
 
+test('refresh honours any of the six commands selected for initiative', () => {
+  assert.equal(refreshCommandPhase(createCommandRound(1, futureBravo)).activeSeatId, futureBravo);
+  assert.equal(refreshCommandPhase(createCommandRound(1, coalitionCentral)).activeSeatId, coalitionCentral);
+});
+
 test('actions alternate sides and rotate command ownership deterministically', () => {
   let state = fresh();
   const expected = [
