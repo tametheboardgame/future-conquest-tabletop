@@ -76,7 +76,10 @@ await page.addInitScript(() => {
 });
 
 const started = performance.now();
-const query = new URLSearchParams({ terrain: '1', r5HardwareDiag: 'terrain-none' });
+// Use an explicit BG0 terrain-core mode rather than the broader terrain-none
+// scene mode. This guarantees the same diagnostic settlement contract exists
+// in both the exact accepted base and the exact BG1 head.
+const query = new URLSearchParams({ terrain: '1', r5HardwareDiag: 'terrain-mesh' });
 if (tileCancellation === 'cancel') query.set('tileCancellation', 'cancel');
 if (tileCancellation === 'retain') query.set('tileCancellation', 'retain');
 await page.goto(`${origin}/?${query.toString()}`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
@@ -168,20 +171,18 @@ if (startupOutcome !== 'terrain') {
 }
 
 // Current BG0 uses the terrain-core diagnostic as the authoritative settlement
-// evidence. Require the actual MapLibre map, style and tiles to be settled with
-// the shared DEM, terrain mesh and hillshade present. This is stricter and more
-// direct than the retired component data-status signal, and it is applied to
-// exact base and exact head through the same head-owned probe.
+// evidence. The terrain-mesh mode isolates exactly the DEM plus MapLibre terrain
+// surface being benchmarked, without custom Three layers or hillshade work.
 await page.waitForFunction(() => {
   const snapshot = window.__r5TerrainCoreDiagnostic;
-  return snapshot?.mode === 'terrain-none'
+  return snapshot?.mode === 'terrain-mesh'
     && snapshot.mapLoaded === true
     && snapshot.styleLoaded === true
     && snapshot.tilesLoaded === true
     && snapshot.demSourcePresent === true
     && snapshot.demSourceLoaded === true
     && snapshot.terrainAttached === true
-    && snapshot.hillshadePresent === true;
+    && snapshot.hillshadePresent === false;
 }, undefined, { timeout: 45_000 });
 await page.waitForFunction(() => document.querySelector('.r3-terrain-prototype')?.getAttribute('data-overlay-lod') === 'campaign');
 await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -295,6 +296,7 @@ const evidence = {
   },
   cacheMode: 'cold-disabled',
   usefulPaint: {
+    diagnosticMode: 'terrain-mesh',
     requiresMapStyleTilesSettled: true,
     requiresTerrainCoreComposition: true,
     requiresCampaignLod: true,
